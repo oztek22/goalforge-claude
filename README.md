@@ -108,18 +108,10 @@ Follow the browser prompt to sign in with your Claude.ai account. No API key. No
 
 ### Installing the `goalforge` CLI (Mode 1)
 
+#### Option A — npm (recommended)
+
 ```bash
-# 1. Enter the engine directory
-cd engine
-
-# 2. Install dependencies
-npm install
-
-# 3. Compile TypeScript and make the binary executable
-npm run build
-
-# 4. Link it globally so `goalforge` works from anywhere
-npm link
+npm install -g goalforge-claude
 ```
 
 Verify:
@@ -129,18 +121,35 @@ goalforge --version
 # goalforge v1.0.0
 ```
 
+To update:
+
+```bash
+npm update -g goalforge-claude
+```
+
 To uninstall:
 
 ```bash
-npm unlink -g goalforge
+npm uninstall -g goalforge-claude
 ```
 
-#### Update from source
+#### Option B — from source
 
 ```bash
+# 1. Enter the engine directory
 cd engine
-git pull
-npm run build   # re-compile; the global link auto-picks up the new dist/
+
+# 2. Install dependencies and compile
+npm install && npm run build
+
+# 3. Link globally
+npm link
+```
+
+To update from source:
+
+```bash
+cd engine && git pull && npm run build
 ```
 
 ---

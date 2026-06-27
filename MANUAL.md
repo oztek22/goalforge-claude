@@ -47,7 +47,15 @@ Follow the browser prompt to sign in with your Claude.ai account. Once logged in
 
 ## First-Time Setup
 
-Open a terminal, navigate to this project, then run:
+### Option A — install from npm (easiest)
+
+```bash
+npm install -g goalforge-claude
+```
+
+The `goalforge` command is now available everywhere. Skip to **Running the Tool** below.
+
+### Option B — run from this folder
 
 ```bash
 cd engine
@@ -61,7 +69,13 @@ You only need to do this once.
 
 ## Running the Tool
 
-### Quick start
+### Quick start (npm install)
+
+```bash
+goalforge "Build a CLI app that converts CSV files to JSON"
+```
+
+### Quick start (from source)
 
 ```bash
 cd engine
