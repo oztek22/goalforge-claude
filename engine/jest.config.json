@@ -1,0 +1,20 @@
+{
+  "preset": "ts-jest",
+  "testEnvironment": "node",
+  "roots": ["<rootDir>/tests"],
+  "testMatch": ["**/*.test.ts"],
+  "collectCoverageFrom": [
+    "src/**/*.ts",
+    "!src/index.ts"
+  ],
+  "coverageThreshold": {
+    "global": {
+      "lines": 70,
+      "functions": 70,
+      "branches": 60,
+      "statements": 70
+    }
+  },
+  "coverageReporters": ["text", "lcov", "json"],
+  "testTimeout": 60000
+}

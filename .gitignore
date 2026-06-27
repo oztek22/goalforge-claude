@@ -1,0 +1,33 @@
+# dependencies
+engine/node_modules/
+
+# build output
+engine/dist/
+
+# test coverage
+engine/coverage/
+
+# runtime generated data
+engine/.goalforge/
+engine/memory/
+engine/workspace/
+workspace/
+
+# claude code internal
+.claude/scheduled_tasks.lock
+
+# env / secrets
+.env
+.env.*
+.env.memory
+
+# logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+.idea/
