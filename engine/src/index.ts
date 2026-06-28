@@ -12,7 +12,7 @@ import { cleanupAfterSuccess, isSuccessExit } from './components/cleanup';
 import { LoopExitReason } from './core/types';
 import * as StatusBar from './core/status-bar';
 
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 
 const UPSTREAM_REPO = 'oztek22/goalforge-claude';
 const UPSTREAM_URL  = `https://github.com/${UPSTREAM_REPO}`;

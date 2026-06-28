@@ -54,7 +54,10 @@ export class LoopController {
     this.memory = new MemoryStore(config.memoryDir);
     this.stopFile = join(config.memoryDir, '..', 'STOP');
     this.queue = new TaskQueue(this.memory);
-    this.optimizer = new CostOptimizer(DEFAULT_BUDGET, this.memory);
+    this.optimizer = new CostOptimizer(
+      { ...DEFAULT_BUDGET, maxCostUsd: config.maxCostUsd },
+      this.memory
+    );
     this.planner = new Planner(this.optimizer, this.memory, config.dryRun, config.claudeTimeoutMs);
     this.executor = new Executor(
       config.workspaceDir,
@@ -239,6 +242,7 @@ export class LoopController {
       this.queue.enqueueBatch(plans);
       this.log.info('Tasks enqueued', { count: plans.length });
     } catch (err) {
+      if (err instanceof RateLimitError) throw err;
       this.log.error('Planner failed', { err: String(err) });
     }
 

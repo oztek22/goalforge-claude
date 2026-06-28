@@ -10,6 +10,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [1.2.1] — 2026-06-28
+
+### Fixed
+
+- **`--cost N` flag now respected** — `CostOptimizer` was always constructed with the hardcoded `DEFAULT_BUDGET` ($10), ignoring the value passed via `--cost`. It now merges `config.maxCostUsd` into the budget so the spend cap and `remainingUsd` display correctly.
+- **Rate limit in planner propagates correctly** — a `RateLimitError` thrown during the Plan phase was swallowed by the catch block and logged as a generic planner failure. It is now re-thrown so the outer loop's sleep-and-retry handler can pause until the reset window expires.
+
+---
+
 ## [1.2.0] — 2026-06-28
 
 ### Added
@@ -120,6 +129,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 - Zero runtime dependencies — the engine shell is `{}`; all AI calls go through the `claude` subprocess
 - `files` field in `package.json` whitelists only `dist/` and `README.md` in the npm tarball (38.8 kB packed)
 
+[1.2.1]: https://github.com/oztek22/goalforge-claude/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/oztek22/goalforge-claude/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/oztek22/goalforge-claude/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/oztek22/goalforge-claude/compare/v1.0.0...v1.1.0
