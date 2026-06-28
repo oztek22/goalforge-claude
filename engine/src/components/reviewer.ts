@@ -4,6 +4,7 @@ import { CostOptimizer } from './cost-optimizer';
 import { MemoryStore } from './memory-store';
 import { createLogger } from '../core/logger';
 import { callClaude } from './claude-cli';
+import * as StatusBar from '../core/status-bar';
 
 const SYSTEM_PROMPT = `You are a critical code reviewer in an autonomous development loop.
 Your job is to find real problems — not style preferences. Be specific and actionable.
@@ -51,7 +52,8 @@ export class Reviewer {
   constructor(
     private readonly optimizer: CostOptimizer,
     private readonly memory: MemoryStore,
-    private readonly dryRun = false
+    private readonly dryRun = false,
+    private readonly timeoutMs = 600_000
   ) {}
 
   async review(task: Task): Promise<ReviewResult> {
@@ -71,15 +73,22 @@ export class Reviewer {
       return this.emptyReview(task.id, 'Budget exhausted');
     }
 
+    const reviewId = `${task.id}:review`;
+    StatusBar.startTask(reviewId, `Review: ${task.objective.slice(0, 30)}`);
     let raw: string;
-    const cached = this.optimizer.getCachedResponse(cacheKey);
-    if (cached) {
-      raw = cached;
-    } else if (this.dryRun) {
-      raw = this.dryRunResponse(task);
-    } else {
-      raw = await this.callApi(prompt);
-      this.optimizer.putCachedResponse(cacheKey, raw);
+    try {
+      const cached = this.optimizer.getCachedResponse(cacheKey);
+      if (cached) {
+        raw = cached;
+      } else if (this.dryRun) {
+        raw = this.dryRunResponse(task);
+      } else {
+        raw = await this.callApi(reviewId, prompt, task.objective);
+        this.optimizer.putCachedResponse(cacheKey, raw);
+      }
+    } catch (err) {
+      StatusBar.clearTask(reviewId);
+      throw err;
     }
 
     const result = this.parse(task.id, raw);
@@ -89,12 +98,15 @@ export class Reviewer {
       this.memory.saveCritique(c);
     }
 
-    this.log.info('Review complete', {
-      taskId: task.id,
-      score: result.score,
-      passed: result.passed,
-      criticalIssues: result.critiques.filter((c) => c.severity === 'critical').length,
-    });
+    const critical = result.critiques.filter((c) => c.severity === 'critical').length;
+    const verdict = result.passed ? '✓ passed' : '✗ failed';
+    StatusBar.finishTask(reviewId, `${verdict}  ${result.score}/100`);
+    this.log.info(`Review ${verdict} — score ${result.score}/100${critical > 0 ? `  (${critical} critical)` : ''}`);
+    if (!result.passed) {
+      result.critiques.slice(0, 3).forEach(c =>
+        this.log.warn(`  [${c.severity}] ${c.description}`)
+      );
+    }
 
     return result;
   }
@@ -129,8 +141,8 @@ export class Reviewer {
       .join('\n');
   }
 
-  private async callApi(prompt: string): Promise<string> {
-    const { text, costUsd } = await callClaude(SYSTEM_PROMPT, prompt);
+  private async callApi(taskId: string, prompt: string, _taskObjective: string): Promise<string> {
+    const { text, costUsd } = await callClaude(SYSTEM_PROMPT, prompt, this.timeoutMs, taskId);
     this.optimizer.recordCost(costUsd);
     return text;
   }
@@ -138,8 +150,18 @@ export class Reviewer {
   private parse(taskId: string, raw: string): ReviewResult {
     let parsed: ReviewerResponse;
     try {
-      const json = raw.replace(/^```json?\n?/m, '').replace(/```$/m, '').trim();
-      parsed = JSON.parse(json);
+      const stripped = raw.replace(/^```json?\n?/m, '').replace(/```$/m, '').trim();
+      try {
+        parsed = JSON.parse(stripped);
+      } catch {
+        const first = stripped.indexOf('{');
+        const last = stripped.lastIndexOf('}');
+        if (first !== -1 && last > first) {
+          parsed = JSON.parse(stripped.slice(first, last + 1));
+        } else {
+          throw new Error('No JSON object found');
+        }
+      }
     } catch (err) {
       this.log.error('Failed to parse review response', { err: String(err) });
       return this.emptyReview(taskId, 'Parse error');

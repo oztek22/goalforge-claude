@@ -206,7 +206,7 @@ memory/
 
 ```
 <project-root>/
-  engine/
+  .goalforge/
     memory/
       state/project.json
       tasks/
@@ -214,10 +214,12 @@ memory/
       decisions/
       files/
       cache/
-  workspace/          ← generated code lives here
+  <your generated code lives directly here, at the project root>
 ```
 
 Paths are configured via `workspaceDir` and `memoryDir` in `LoopConfig`. Tests write to isolated temp directories and clean up in `beforeEach` and `afterAll`.
+
+> **Note**: `.goalforge` is automatically added to `.gitignore` on first run.
 
 ---
 
@@ -231,6 +233,8 @@ The loop exits (returning a `LoopExitReason`) when the first of these is true:
 | `all-tasks-complete` | Queue is complete (all COMPLETE/FAILED) AND at least one task was completed |
 | `cost-exceeded` | `totalSpendUsd >= maxCostUsd` (checked after execute phase and after cost phase) |
 | `max-iterations` | Loop counter reaches `maxIterations` |
+| `user-quit` | User typed `quit` at the interactive pause or finish prompt |
+| `user-redo` | User typed `redo` at the interactive pause or finish prompt; the outer `main()` loop restarts with an updated goal |
 
 ---
 
@@ -282,14 +286,18 @@ npm run build
 # Dry run (no Claude calls, no file writes)
 DRY_RUN=true npm start
 
-# Real run with a custom goal
-GOAL="Build a REST API for user authentication" npm start
+# Real run — run from your project directory, files land in place
+cd ~/my-project
+GOAL="Build a REST API for user authentication" goalforge "Build a REST API for user authentication"
 
 # Override budget and iteration limit
-GOAL="..." MAX_COST_USD=5 MAX_ITERATIONS=10 npm start
+goalforge --iter 10 --cost 5 "Build a REST API for user authentication"
+
+# Resume an interrupted run
+goalforge resume
 ```
 
-Generated code is written to `../workspace/` (sibling of the `engine/` directory).
+Generated code is written into `process.cwd()` — the directory you run the command from. Persistent state is stored in `.goalforge/memory/` inside the same directory.
 
 ---
 

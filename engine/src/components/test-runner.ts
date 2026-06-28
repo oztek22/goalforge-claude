@@ -1,8 +1,11 @@
-import { execSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { TestFailure, TestReport } from '../core/types';
 import { createLogger } from '../core/logger';
+
+const execAsync = promisify(exec);
 
 const JSON_REPORTER_SENTINEL = /^{/m;
 
@@ -37,7 +40,7 @@ export class TestRunner {
     this.log.debug('Detected test runner', { runner });
 
     try {
-      const raw = this.execTests(runner);
+      const raw = await this.execTests(runner);
       const report = this.parseOutput(raw, runner);
       this.log.info('Tests complete', {
         total: report.totalTests,
@@ -87,14 +90,7 @@ export class TestRunner {
     return 'npm-test';
   }
 
-  private execTests(runner: string): string {
-    const opts: ExecSyncOptionsWithStringEncoding = {
-      cwd: this.workspaceDir,
-      encoding: 'utf-8',
-      stdio: 'pipe',
-      timeout: 120_000,
-    };
-
+  private async execTests(runner: string): Promise<string> {
     const cmd =
       runner === 'jest-json'
         ? 'npx jest --json --coverage --passWithNoTests 2>&1 || true'
@@ -102,7 +98,12 @@ export class TestRunner {
         ? 'npx jest --coverage --passWithNoTests 2>&1 || true'
         : 'npm test 2>&1 || true';
 
-    return execSync(cmd, opts);
+    const { stdout, stderr } = await execAsync(cmd, {
+      cwd: this.workspaceDir,
+      timeout: 120_000,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return stdout + (stderr ? '\n' + stderr : '');
   }
 
   private parseOutput(raw: string, runner: string): TestReport {

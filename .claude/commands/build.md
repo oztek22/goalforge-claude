@@ -34,8 +34,8 @@ Strip the flags from the input, store their values, and treat the remainder as t
 
 | Setting | Value |
 |---------|-------|
-| Workspace | `./workspace/` (relative to project root) |
-| State dir | `./workspace/.build/` |
+| Project root | `./` (PWD — where you are right now) |
+| State dir | `./.goalforge/build/` |
 | Max iterations | `--iter` value, or 20 |
 | Max tasks per plan | `--tasks` value, or unlimited |
 | Target coverage | `--coverage` value, or 95 |
@@ -49,10 +49,16 @@ Strip the flags from the input, store their values, and treat the remainder as t
 
 ## Startup — Orient
 
-1. Detect the project root: it is the directory containing `engine/` and `workspace/`. If unsure, run `pwd` and `ls`.
-2. Check if `./workspace/.build/STATE.md` exists.
+1. Run `pwd` and `ls` to confirm the current project directory.
+2. Add `.goalforge` to `.gitignore` if it is not already there (create `.gitignore` if the file doesn't exist).
+3. **If no goal was given** (empty `$ARGUMENTS` after flag parsing) → run auto-discover:
+   - Run `find . -type f -not -path "./.goalforge/*" -not -path "./node_modules/*" -not -path "./.git/*" -not -path "./dist/*" | sort | head -60` to see the project layout.
+   - Read `package.json` and up to 3 key source files (entry point, main module, or the file with the most imports).
+   - Reason about: missing tests, unhandled errors, incomplete features, technical debt, security gaps.
+   - Set the goal to a single clear, specific, actionable improvement (1–2 sentences). Print it: `Discovered goal: <goal>`.
+4. Check if `.goalforge/build/STATE.md` exists.
    - **Yes** → resume. Read `STATE.md` and `BACKLOG.md`. Treat any `[~]` task as `[ ]` — it did not finish.
-   - **No** → fresh run. Create `./workspace/.build/` and initialise `STATE.md`.
+   - **No** → fresh run. Create `.goalforge/build/` and initialise `STATE.md`.
 
 **Initial STATE.md format**:
 ```
@@ -97,7 +103,7 @@ Architecture decisions so far:
 <contents of DECISIONS.md, or "none">
 ```
 
-Append the checklist to `./workspace/.build/BACKLOG.md` (never overwrite `[x]` tasks). Append any architecture decisions to `./workspace/.build/DECISIONS.md`.
+Append the checklist to `.goalforge/build/BACKLOG.md` (never overwrite `[x]` tasks). Append any architecture decisions to `.goalforge/build/DECISIONS.md`.
 
 ---
 
@@ -106,8 +112,8 @@ Append the checklist to `./workspace/.build/BACKLOG.md` (never overwrite `[x]` t
 1. Read `BACKLOG.md`. Find the first `[ ]` task with fewer than 2 retries (or no retry annotation).
 2. Mark it `[~]` and save.
 3. Implement it **inline** (do not spawn a subagent — you do this directly):
-   - `Write` / `Edit` for files under `./workspace/`
-   - `Bash` for installs inside `./workspace/`
+   - `Write` / `Edit` for files in the project root (PWD) and its subdirectories
+   - `Bash` for installs in the project root (e.g. `npm install <pkg>` runs from PWD)
    - Real, working code — no stubs, no TODOs
    - One task only — do not opportunistically implement others
 4. Mark it `[x]` in `BACKLOG.md`.
@@ -120,10 +126,10 @@ If no eligible task exists → skip to Phase 5.
 ### Phase 3 — TEST
 
 ```bash
-cd ./workspace && npx jest --coverage --passWithNoTests --json 2>/dev/null | tail -5
+npx jest --coverage --passWithNoTests --json 2>/dev/null | tail -5
 ```
 
-If no `jest.config.*` or `package.json` found: record `tests_passing: false`, `coverage_percent: 0` and continue.
+Run from **PWD** (the project root). If no `jest.config.*` or `package.json` found in PWD: record `tests_passing: false`, `coverage_percent: 0` and continue.
 
 Update `STATE.md` with `tests_passing` and `coverage_percent`.
 
@@ -152,7 +158,7 @@ ISSUES:
 - **Failed, retries < 2** → uncheck to `[ ]`, append `(retries: N+1)`, remove from completed list.
 - **Failed, retries exhausted** → mark `[F]`, continue.
 
-Append review summary to `./workspace/.build/DECISIONS.md`.
+Append review summary to `.goalforge/build/DECISIONS.md`.
 
 ---
 
@@ -176,7 +182,39 @@ Rewrite `STATE.md` with updated `iteration` and `last_updated`. Loop back to Pha
 
 ## Finish
 
-Set `last_exit` in `STATE.md`. Print:
+Set `last_exit` in `STATE.md`.
+
+### Update CHANGELOG.md
+
+After setting `last_exit`, update (or create) `CHANGELOG.md` in the project root:
+
+1. Collect all `[x]` tasks from `BACKLOG.md` that completed in this run (i.e. not already in the changelog from a prior run — use `STATE.md`'s `last_changelog_iter` field to track this, updating it now).
+2. Categorise each task objective:
+   - Starts with "Fix / Repair / Resolve / Correct / Patch" → **Fixed**
+   - Starts with "Add / Create / Implement / Write / Build / Scaffold" → **Added**
+   - Everything else → **Changed**
+3. Build this block:
+   ```
+   ### GoalForge run — YYYY-MM-DD
+   
+   > <goal, first 100 chars>
+   
+   #### Added
+   - <objective>
+   
+   #### Changed
+   - <objective>
+   
+   #### Fixed
+   - <objective>
+   ```
+   (omit any empty category section)
+4. Insert the block:
+   - If `CHANGELOG.md` has `## [Unreleased]` → insert immediately after that line.
+   - If `CHANGELOG.md` exists but has no `[Unreleased]` → prepend `## [Unreleased]\n<block>` before the first `## ` section.
+   - If `CHANGELOG.md` does not exist → create it with a `# Changelog` header and the `[Unreleased]` block.
+
+Then print the summary:
 
 ```
 === BUILD COMPLETE: <EXIT REASON> ===
@@ -184,8 +222,9 @@ Iterations run : N / <max>
 Tasks completed: N / total  (failed: N)
 Tests passing  : yes | no
 Coverage       : N%  (target: N%)
-Generated code : ./workspace/
-State / logs   : ./workspace/.build/
+Generated code : ./  (project root)
+State / logs   : .goalforge/build/
+Changelog      : CHANGELOG.md updated
 ```
 
 ---
@@ -203,10 +242,27 @@ State / logs   : ./workspace/.build/
 
 ---
 
+## Interactive Controls
+
+At any point during a run:
+
+| Action | What to do |
+|--------|-----------|
+| Pause and give feedback | Press **Ctrl+C** once — the loop finishes its current AI call then pauses |
+| Continue as-is | Press Enter at the pause prompt |
+| Inject feedback and continue | Type your note at the prompt (e.g. "focus on auth first") |
+| Redo from scratch | Type `redo` or `redo <your direction>` |
+| Quit | Type `quit` or `q` |
+
+After the loop finishes normally, you're also prompted: "Was this what you wanted?" — type feedback to redo with that direction, or Enter to accept.
+
+---
+
 ## Hard Rules
 
 - Never delete or overwrite a `[x]` task in `BACKLOG.md`.
 - On resume, treat `[~]` as `[ ]` (crash recovery).
-- Always write to `./workspace/` — never outside it.
+- Always write files relative to PWD — never outside the project root.
 - One task per Phase 2 — do not batch.
 - Save state after every phase.
+- Never write to `workspace/` — that directory is no longer used.

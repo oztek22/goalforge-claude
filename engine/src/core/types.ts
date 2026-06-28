@@ -143,11 +143,12 @@ export interface LoopConfig {
   workspaceDir: string;            // where generated code lives
   memoryDir: string;               // where memory files are stored
   dryRun: boolean;                 // skip real API calls
+  claudeTimeoutMs: number;         // per-call claude CLI timeout (default 600 000 ms)
 }
 
 export interface LoopExitReason {
   reason: 'coverage-met' | 'tests-passing' | 'cost-exceeded' | 'no-critical-issues' |
-          'max-iterations' | 'all-tasks-complete' | 'fatal-error';
+          'max-iterations' | 'all-tasks-complete' | 'fatal-error' | 'user-redo' | 'user-quit';
   detail: string;
   finalState: ProjectState;
 }

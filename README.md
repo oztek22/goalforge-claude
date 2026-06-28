@@ -55,11 +55,112 @@ Each phase runs as a **fresh claude subprocess** — no shared context window, n
 
 ---
 
+## Demo
+
+```
+$ cd ~/projects/my-react-app
+$ goalforge "Add a dark mode toggle to the Settings page"
+
+19:04:31  ⬡ GoalForge       GoalForge starting  {"goal":"Add a dark mode toggle...","maxIterations":20}
+19:04:31  ◈ LoopController  === AUTONOMOUS LOOP STARTING ===
+19:04:31  ◈ LoopController  Iteration 1
+19:04:32  ◆ Planner         Phase: PLAN
+19:04:47  ≡ TaskQueue       Tasks enqueued  {"count":4}
+19:04:47  ▶ Executor        Phase: EXECUTE
+19:04:47  ▶ Executor        Starting task  {"objective":"Add ThemeContext with dark/light mode state"}
+19:05:14  ▶ Executor        Task complete  {"output":"Wrote src/context/ThemeContext.tsx, src/hooks/useTheme.ts"}
+19:05:14  ▶ Executor        Starting task  {"objective":"Create DarkModeToggle component"}
+19:05:39  ▶ Executor        Task complete  {"output":"Wrote src/components/DarkModeToggle.tsx"}
+19:05:39  ✓ TestRunner      Phase: TEST  {"total":14,"passed":14,"failed":0,"coverage":"87%"}
+19:05:53  ● Reviewer        Phase: REVIEW
+19:06:07  ● Reviewer        Review result  {"score":91,"passed":true}
+19:06:07  ◈ LoopController  Iteration 2
+──────────────────────────────────────────────────────────
+ ◈ executing       iter 2/20    ✓ 3 done    $0.0847
+
+# Press Ctrl+C once to pause after the current call
+^C
+╔══════════════════════════════════════════════════════╗
+║           ⏸  Paused during: executing               ║
+╚══════════════════════════════════════════════════════╝
+  Finishing current AI call — standby for the prompt.
+
+╔══════════════════════════════════════════════════════╗
+║   ⏸  GoalForge paused  ·  executing  ·  iter 2      ║
+╚══════════════════════════════════════════════════════╝
+  Enter             → continue as-is
+  <your feedback>   → inject feedback and continue
+  redo              → restart from scratch (same goal)
+  redo <feedback>   → restart with extra direction
+  quit  /  q        → stop
+
+> make sure the toggle persists across page reloads
+```
+
+> Record your own demo with [VHS](https://github.com/charmbracelet/vhs) or [asciinema](https://asciinema.org) and drop the GIF in `assets/`.
+
+---
+
+## More examples
+
+### Drop it on any existing project — no goal needed
+
+```
+$ cd ~/projects/legacy-node-api
+$ goalforge
+
+19:14:22  ⬡ GoalForge       No goal provided — studying codebase to discover improvements...
+19:14:35  ⬡ GoalForge       Discovered goal  {"goal":"Add input validation and centralised error handling to all Express route handlers — currently routes crash on malformed JSON payloads"}
+19:14:35  ◈ LoopController  === AUTONOMOUS LOOP STARTING ===
+19:14:35  ◆ Planner         Phase: PLAN
+19:14:51  ≡ TaskQueue       Tasks enqueued  {"count":6}
+19:14:51  ▶ Executor        Starting task  {"objective":"Add express-validator middleware to POST /users"}
+19:15:19  ▶ Executor        Task complete  {"output":"Wrote src/middleware/validate.ts, updated src/routes/users.ts"}
+19:15:19  ▶ Executor        Starting task  {"objective":"Add centralised error handler to app.ts"}
+19:15:44  ▶ Executor        Task complete  {"output":"Wrote src/middleware/errorHandler.ts, updated src/app.ts"}
+19:15:44  ✓ TestRunner      Phase: TEST  {"total":8,"passed":8,"failed":0,"coverage":"74%"}
+19:15:57  ● Reviewer        Review result  {"score":88,"passed":true}
+──────────────────────────────────────────────────────────
+ ◈ executing       iter 1/20    ✓ 2 done    $0.0621
+```
+
+GoalForge reads the file tree, samples key source files, asks Claude what matters most, then builds it. You walked away after one command.
+
+---
+
+### Resume after a crash or force-quit
+
+```
+$ cd ~/projects/legacy-node-api
+$ goalforge      # ← ran yesterday, ctrl+c'd twice mid-run
+
+# ... long pause, laptop closed ...
+
+$ goalforge resume
+
+Resuming: Add input validation and centralised error handling to all Express route handlers
+  Phase: executing  ·  Iter: 2  ·  Done: 3  ·  Failed: 0  ·  Cost: $0.1843
+
+19:22:18  ⬡ GoalForge       Resuming previous run  {"projectId":"project-1751044712983"}
+19:22:18  ≡ TaskQueue       Hydrated task queue from disk  {"count":6,"resetToReady":1}
+                                                         ↑ the mid-run task resets automatically
+19:22:18  ▶ Executor        Starting task  {"objective":"Add validation to PUT /users/:id"}
+19:22:49  ▶ Executor        Task complete  {"output":"Updated src/routes/users.ts"}
+──────────────────────────────────────────────────────────
+ ◈ executing       iter 2/20    ✓ 4 done    $0.2104
+```
+
+State is read from `.goalforge/memory/state/project.json`. Any task that was mid-execution resets to pending and reruns cleanly — nothing lost.
+
+---
+
 ## Key concepts
 
 - **No API key** — uses `claude -p --output-format json` under the hood. Your Claude.ai subscription covers the cost.
+- **PWD as workspace** — run `goalforge` from your project root; files are written in place. No `workspace/` subdirectory.
 - **Fresh context per phase** — Planner, Executor, and Reviewer each get a clean 200k-token window. Long-running projects never hit context limits.
-- **Crash-resilient** — tasks marked `[~]` in-progress are reset to `[ ]` on resume. Pick up exactly where you left off.
+- **Crash-resilient** — `goalforge resume` picks up exactly where the loop left off. Any in-flight task is reset and retried.
+- **Interactive** — Ctrl+C once to pause, inject feedback, redo, or quit. A finish prompt appears after every normal exit.
 - **Spend cap** — `--cost <N>` hard-stops the loop before you overshoot your budget.
 - **Coverage gate** — the loop won't exit until Jest reports ≥ target line coverage (default 95%).
 - **Retry tracking** — failed tasks get `(retries: N)` annotations. After 3 retries the task is marked `[F]` and skipped.
@@ -194,18 +295,69 @@ goalforge "Build a REST API with JWT auth and SQLite"
 ### With flags
 
 ```bash
+# No goal — study the codebase and improve it autonomously
+goalforge
+
+# Resume an interrupted run (picks up state from .goalforge/memory/)
+goalforge resume
+
+# Fork GoalForge, improve it, and open a PR automatically
+goalforge contribute
+
 # Tight budget and fewer iterations
 goalforge --iter 5 --cost 2 "Add input validation to the user endpoint"
-
-# Resume a previous project by ID
-goalforge --id my-api "Build a REST API with JWT auth and SQLite"
 
 # Dry run — see the plan without calling Claude
 goalforge --dry-run "Build a CLI markdown converter"
 
-# Custom output directory
+# Custom working directory
 goalforge --workspace ~/projects/my-api "Build a REST API"
 ```
+
+### `goalforge contribute`
+
+Run this from the folder where you want the repo cloned:
+
+```bash
+cd ~/Desktop
+goalforge contribute
+
+#  Forking and cloning oztek22/goalforge-claude...
+#  Installing and building engine...
+#
+#  ╔══════════════════════════════════════════════════════╗
+#  ║           🤝  GoalForge Contribute                   ║
+#  ╚══════════════════════════════════════════════════════╝
+#
+#    Repo cloned to: ~/Desktop/goalforge-claude
+#
+#    What improvement would you like to contribute?
+#    Be specific — this becomes the autonomous loop goal.
+#
+#  > Add a --quiet flag that suppresses all non-error output
+#
+#  [GoalForge autonomous loop runs on the cloned repo]
+#
+#  ✓ Pull request created: https://github.com/oztek22/goalforge-claude/pull/42
+```
+
+**Requirements**: the `gh` CLI installed and authenticated (`gh auth login`).  
+GoalForge forks the repo to your GitHub account, creates a branch, runs the loop on its own source, commits the result, and opens a PR to `oztek22/goalforge-claude` — all in one command.
+
+### Interactive controls
+
+At any point during a run:
+
+| Action | How |
+|--------|-----|
+| Pause cleanly | **Ctrl+C** once — finishes the current AI call then pauses |
+| Continue | Press **Enter** at the prompt |
+| Inject feedback | Type a note (e.g. `focus on auth first`) |
+| Redo from scratch | Type `redo` or `redo <direction>` |
+| Quit | `q` |
+| Force-quit immediately | **Ctrl+C** twice |
+
+After a force-quit, run `goalforge resume` to pick up exactly where the loop left off.
 
 ### All flags
 
@@ -214,13 +366,12 @@ goalforge --workspace ~/projects/my-api "Build a REST API"
 | `--iter <N>` | `-i` | `20` | Max loop iterations before forced exit |
 | `--cost <N>` | `-c` | `10` | Spend cap in USD (subscription usage governor) |
 | `--cover <N>` | `-k` | `95` | Target line coverage % |
-| `--id <id>` | `-p` | auto | Project ID — set this to resume a prior run |
-| `--workspace <path>` | | `./workspace` | Where generated code lands |
+| `--workspace <path>` | | `./` | Working directory — generated code lands here |
 | `--dry-run` | `-d` | off | Skip all Claude calls; write placeholder files |
 | `--version` | `-v` | | Print version and exit |
 | `--help` | `-h` | | Show help and exit |
 
-Environment variables (`GOAL`, `MAX_ITERATIONS`, `MAX_COST_USD`, `TARGET_COVERAGE`, `PROJECT_ID`, `DRY_RUN`) are read as defaults and overridden by flags.
+Environment variables (`GOAL`, `MAX_ITERATIONS`, `MAX_COST_USD`, `TARGET_COVERAGE`, `DRY_RUN`) are read as defaults and overridden by flags.
 
 ---
 
@@ -258,6 +409,7 @@ goalforge/                         # project root
 │   │   ├── loop-controller.ts     # 6-phase state machine
 │   │   ├── components/
 │   │   │   ├── claude-cli.ts      # claude subprocess wrapper
+│   │   │   ├── interactive.ts     # Ctrl+C pause / resume session
 │   │   │   ├── planner.ts         # Phase 1: Sonnet task decomposition
 │   │   │   ├── executor.ts        # Phase 2: code generation
 │   │   │   ├── test-runner.ts     # Phase 3: Jest + coverage
@@ -265,7 +417,8 @@ goalforge/                         # project root
 │   │   │   └── cost-optimizer.ts  # spend tracking + prompt cache
 │   │   └── core/
 │   │       ├── config.ts          # defaults + loop config type
-│   │       ├── logger.ts          # structured JSON logger
+│   │       ├── logger.ts          # per-component colour logger
+│   │       ├── status-bar.ts      # sticky TUI footer
 │   │       └── types.ts           # shared TypeScript types
 │   ├── tests/                     # Jest test suite
 │   ├── package.json               # name: "goalforge", bin: "goalforge"
@@ -275,25 +428,30 @@ goalforge/                         # project root
 │   └── commands/
 │       └── build.md               # /build skill (Mode 2)
 │
-├── workspace/                     # generated code lands here
-│   └── <project>/
-│       ├── .build/
-│       │   ├── BACKLOG.md         # [ ] [~] [x] [F] task checklist
-│       │   ├── STATE.md           # loop state snapshot
-│       │   └── DECISIONS.md       # architecture log
-│       └── <your generated files>
-│
 ├── assets/
 │   └── readme-cover.svg           # cover image
 ├── MANUAL.md                      # non-engineer user guide
 └── README.md                      # this file
+
+# When you run goalforge in your project:
+your-project/
+├── <generated source files>       # written directly into your project root
+└── .goalforge/                    # gitignored automatically
+    ├── memory/                    # CLI state machine state
+    │   ├── state/project.json
+    │   ├── tasks/
+    │   └── cache/
+    └── build/                     # /build skill state
+        ├── BACKLOG.md             # [ ] [~] [x] [F] task checklist
+        ├── STATE.md               # loop state snapshot
+        └── DECISIONS.md          # architecture log
 ```
 
 ---
 
 ## How the `/build` skill stores state
 
-The skill writes state to `./workspace/.build/` using three markdown files:
+The skill writes state to `.goalforge/build/` inside your current project directory using three markdown files:
 
 | File | Purpose |
 |------|---------|

@@ -4,6 +4,7 @@ import { CostOptimizer } from './cost-optimizer';
 import { MemoryStore } from './memory-store';
 import { createLogger } from '../core/logger';
 import { callClaude } from './claude-cli';
+import * as StatusBar from '../core/status-bar';
 
 const SYSTEM_PROMPT = `You are a senior software architect acting as a project planner.
 Your job is to decompose a high-level project goal into a prioritised list of concrete,
@@ -53,7 +54,8 @@ export class Planner {
   constructor(
     private readonly optimizer: CostOptimizer,
     private readonly memory: MemoryStore,
-    private readonly dryRun = false
+    private readonly dryRun = false,
+    private readonly timeoutMs = 600_000
   ) {}
 
   /**
@@ -89,7 +91,14 @@ export class Planner {
       this.optimizer.putCachedResponse(cacheKey, raw);
     }
 
-    return this.parse(raw);
+    const tasks = this.parse(raw);
+    if (tasks.length > 0) {
+      this.log.info(`Planned ${tasks.length} task(s):`);
+      tasks.forEach((t, i) =>
+        this.log.info(`  ${i + 1}. [${t.estimatedEffort}] ${t.objective}`)
+      );
+    }
+    return tasks;
   }
 
   // ── Private ────────────────────────────────────────────────────────────────
@@ -122,7 +131,9 @@ export class Planner {
   }
 
   private async callApi(prompt: string): Promise<string> {
-    const { text, costUsd } = await callClaude(SYSTEM_PROMPT, prompt);
+    StatusBar.startTask('planner', 'Planning tasks…');
+    const { text, costUsd } = await callClaude(SYSTEM_PROMPT, prompt, this.timeoutMs, 'planner');
+    StatusBar.clearTask('planner');
     this.optimizer.recordCost(costUsd);
     return text;
   }
@@ -130,11 +141,23 @@ export class Planner {
   private parse(raw: string): PlannerOutput[] {
     let parsed: PlannerResponse;
     try {
-      // strip markdown fences if present
-      const json = raw.replace(/^```json?\n?/m, '').replace(/```$/m, '').trim();
-      parsed = JSON.parse(json);
+      const stripped = raw.replace(/^```json?\n?/m, '').replace(/```$/m, '').trim();
+
+      // Strategy 1: direct parse
+      try {
+        parsed = JSON.parse(stripped);
+      } catch {
+        // Strategy 2: extract outermost JSON object
+        const first = stripped.indexOf('{');
+        const last = stripped.lastIndexOf('}');
+        if (first !== -1 && last > first) {
+          parsed = JSON.parse(stripped.slice(first, last + 1));
+        } else {
+          throw new Error('No JSON object found');
+        }
+      }
     } catch (err) {
-      this.log.error('Failed to parse planner response', { err: String(err), raw });
+      this.log.error('Failed to parse planner response', { err: String(err), raw: raw.slice(0, 500) });
       return [];
     }
 

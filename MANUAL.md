@@ -150,23 +150,23 @@ When the tool finishes it prints one of these exit messages:
 
 ## Where Is My Code?
 
-Everything the tool generates is saved in the `workspace/` folder at the top level of this project (the same level as this manual).
+Generated files are written directly into the directory where you run the tool (your project root). If you run `goalforge` from `~/my-project/`, that is where the code appears.
 
 ```
-goalforge/
-  workspace/    ← your generated code is here
-  engine/       ← the tool itself (don't edit)
-  MANUAL.md     ← this file
+my-project/         ← run goalforge from here
+  src/              ← generated source files land here
+  package.json      ← generated or updated in place
+  .goalforge/       ← tool state (gitignored automatically)
 ```
 
 ---
 
 ## What Gets Remembered
 
-The tool keeps a memory of its work so it can resume if interrupted. This memory is stored in:
+The tool keeps a memory of its work so it can resume if interrupted. This memory is stored in a hidden folder inside your project:
 
 ```
-engine/memory/
+.goalforge/memory/
 ```
 
 It contains:
@@ -175,21 +175,35 @@ It contains:
 - The code review critiques
 - A cache of AI responses (so identical requests aren't re-sent to Claude, saving time and subscription allowance)
 
-To start completely fresh on the same goal, delete the `engine/memory/` folder before running again.
+This folder is automatically added to `.gitignore` on first run — you don't need to commit it.
+
+To start completely fresh on the same goal, delete the `.goalforge/` folder before running again.
 
 ---
 
 ## Resuming a Stopped Run
 
-If the tool is interrupted (Ctrl+C, network error, computer shutdown), just run it again with the same `GOAL` and `PROJECT_ID`. It will pick up where it left off.
+If the tool is interrupted — Ctrl+C twice to force-quit, network error, computer shutdown — run this from the same directory to pick up where it left off:
 
 ```bash
-GOAL="Build a CLI app that converts CSV files to JSON" \
-PROJECT_ID=my-csv-project \
-npm start
+goalforge resume
 ```
 
-Using `PROJECT_ID` lets you have multiple separate projects tracked independently.
+GoalForge reads the saved state from `.goalforge/memory/` and continues from the last completed iteration. Any task that was mid-execution is automatically reset and retried.
+
+### Pausing mid-run
+
+You can also pause cleanly without losing progress:
+
+1. Press **Ctrl+C once** — the loop finishes its current AI call then pauses.
+2. At the prompt, choose:
+   - **Enter** — continue as-is
+   - **Type feedback** — inject a note for the AI and continue (e.g. `focus on error handling`)
+   - **`redo`** — restart from scratch with the same goal
+   - **`redo <feedback>`** — restart with extra direction
+   - **`q`** — stop
+
+After the loop finishes normally, you'll see a "Was this what you wanted?" prompt where you can do the same.
 
 ---
 
@@ -220,14 +234,14 @@ You may have skipped the build step. Run `npm run build` first.
 **The tool stops immediately with "Budget exhausted"**
 Your budget is set too low for the prompt size. Try `MAX_COST_USD=5` or more, or simplify the goal.
 
-**No code appears in `workspace/`**
-Check that `DRY_RUN` is not set to `true`. In dry-run mode the tool creates only placeholder `.txt` files.
+**No code appears in my project directory**
+Check that `DRY_RUN` is not set to `true`. In dry-run mode the tool creates only placeholder `.txt` files. Also confirm you ran `goalforge` from your project root.
 
 **The claude CLI is not authenticated**
 Run `claude login` and follow the browser prompt. If `claude` is not found, install it first: `npm install -g @anthropic-ai/claude-code`.
 
 **I want to start over**
-Delete `engine/memory/` and optionally `workspace/`, then run again.
+Delete `.goalforge/` in your project directory, then run again.
 
 ---
 
@@ -235,5 +249,5 @@ Delete `engine/memory/` and optionally `workspace/`, then run again.
 
 - **Be specific in your goal.** "Build a REST API for user authentication with JWT tokens, written in Node.js with Express" works much better than "Build an auth system".
 - **Set a realistic cap.** `MAX_COST_USD=5` is usually enough for a small but complete project — the default $10 cap is generous but prevents runaway loops.
-- **Check the workspace incrementally.** You can open files in `workspace/` while the tool is still running to see what has been written.
+- **Check your project incrementally.** You can open files in your project directory while the tool is still running to see what has been written.
 - **Use `DRY_RUN=true` first** if you are not sure your goal is well-specified — it runs fast and free, and shows you the task breakdown the AI would plan.

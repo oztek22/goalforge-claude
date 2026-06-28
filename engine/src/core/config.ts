@@ -23,7 +23,7 @@ export function calcCost(inputTokens: number, outputTokens: number): number {
 }
 
 export function defaultLoopConfig(overrides: Partial<LoopConfig> = {}): LoopConfig {
-  const base = join(process.cwd(), '..');
+  const cwd = process.cwd();
 
   return {
     projectId: `project-${Date.now()}`,
@@ -32,9 +32,10 @@ export function defaultLoopConfig(overrides: Partial<LoopConfig> = {}): LoopConf
     maxIterations: 20,
     maxCostUsd: DEFAULT_BUDGET.maxCostUsd,
     maxCriticalIssues: 0,
-    workspaceDir: join(base, 'workspace'),
-    memoryDir: join(base, 'engine', 'memory'),
+    workspaceDir: cwd,
+    memoryDir: join(cwd, '.goalforge', 'memory'),
     dryRun: false,
+    claudeTimeoutMs: 600_000,
     ...overrides,
   };
 }

@@ -35,7 +35,43 @@ export class TaskQueue {
   }
 
   enqueueBatch(plans: PlannerOutput[]): Task[] {
-    return plans.map((p) => this.enqueue(p));
+    // Planner outputs dependencies as objective strings — resolve them to UUIDs
+    // before storing so canRun() lookups work.
+    const ids = plans.map(() => randomUUID());
+    const objectiveToId = new Map<string, string>(
+      plans.map((p, i) => [p.objective, ids[i]])
+    );
+
+    // Skip objectives already queued to prevent duplicate accumulation across
+    // iterations when tasks are stuck and the planner re-fires.
+    const existingObjectives = new Set(
+      [...this.tasks.values()].map((t) => t.objective)
+    );
+
+    const added: Task[] = [];
+    for (let i = 0; i < plans.length; i++) {
+      const plan = plans[i];
+      if (existingObjectives.has(plan.objective)) continue;
+
+      const resolvedDeps = plan.dependencies
+        .map((dep) => objectiveToId.get(dep))
+        .filter((id): id is string => id !== undefined);
+
+      const task: Task = {
+        ...plan,
+        id: ids[i],
+        dependencies: resolvedDeps,
+        status: 'PENDING',
+        retryCount: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      this.tasks.set(task.id, task);
+      this.memory.saveTask(task);
+      this.log.info('Task enqueued', { taskId: task.id, objective: task.objective });
+      added.push(task);
+    }
+    return added;
   }
 
   /** Move a task to RUNNING. Throws if it cannot run yet. */

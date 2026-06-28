@@ -30,14 +30,17 @@ export class CostOptimizer {
 
   getCachedResponse(cacheKey: string): string | null {
     const hit = this.memory.getCached(cacheKey);
-    if (hit) {
-      this.log.debug('Cache hit', { cacheKey: cacheKey.slice(0, 8) + '…' });
-    }
+    // Treat entries that contain no JSON object as stale/corrupt cache misses.
+    if (!hit || !hit.includes('{')) return null;
+    this.log.debug('Cache hit', { cacheKey: cacheKey.slice(0, 8) + '…' });
     return hit;
   }
 
   putCachedResponse(cacheKey: string, response: string): void {
-    this.memory.putCache(cacheKey, response);
+    // Only cache responses that actually contain a JSON object.
+    if (response && response.includes('{')) {
+      this.memory.putCache(cacheKey, response);
+    }
   }
 
   // ── Budget ─────────────────────────────────────────────────────────────────
@@ -164,8 +167,9 @@ export class CostOptimizer {
   }
 
   /** Sync cumulative totals from a ProjectState so they survive process restarts. */
-  restoreFromState(inputTokens: number, outputTokens: number): void {
+  restoreFromState(inputTokens: number, outputTokens: number, directCostUsd = 0): void {
     this.totalInputTokens = inputTokens;
     this.totalOutputTokens = outputTokens;
+    this.directCostUsd = directCostUsd;
   }
 }

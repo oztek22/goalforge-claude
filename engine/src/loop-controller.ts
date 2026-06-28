@@ -1,6 +1,12 @@
-import { LoopConfig, LoopExitReason, ProjectState, TestReport } from './core/types';
+import { LoopConfig, LoopExitReason, ProjectState, Task, TestReport } from './core/types';
+
+// Max independent tasks to execute simultaneously (each spawns its own Claude process).
+const MAX_PARALLEL_TASKS = 3;
+// Max tasks to review simultaneously.
+const MAX_PARALLEL_REVIEWS = 3;
 import { DEFAULT_BUDGET } from './core/config';
 import { createLogger } from './core/logger';
+import * as StatusBar from './core/status-bar';
 import { MemoryStore } from './components/memory-store';
 import { TaskQueue } from './components/task-queue';
 import { CostOptimizer } from './components/cost-optimizer';
@@ -8,6 +14,7 @@ import { Planner } from './components/planner';
 import { Executor } from './components/executor';
 import { Reviewer } from './components/reviewer';
 import { TestRunner } from './components/test-runner';
+import { InteractiveSession } from './components/interactive';
 
 /**
  * LoopController is the autonomous development loop.
@@ -32,18 +39,22 @@ export class LoopController {
   private readonly testRunner: TestRunner;
   private state: ProjectState;
 
-  constructor(private readonly config: LoopConfig) {
+  constructor(
+    private readonly config: LoopConfig,
+    private readonly session?: InteractiveSession
+  ) {
     this.memory = new MemoryStore(config.memoryDir);
     this.queue = new TaskQueue(this.memory);
     this.optimizer = new CostOptimizer(DEFAULT_BUDGET, this.memory);
-    this.planner = new Planner(this.optimizer, this.memory, config.dryRun);
+    this.planner = new Planner(this.optimizer, this.memory, config.dryRun, config.claudeTimeoutMs);
     this.executor = new Executor(
       config.workspaceDir,
       this.optimizer,
       this.memory,
-      config.dryRun
+      config.dryRun,
+      config.claudeTimeoutMs
     );
-    this.reviewer = new Reviewer(this.optimizer, this.memory, config.dryRun);
+    this.reviewer = new Reviewer(this.optimizer, this.memory, config.dryRun, config.claudeTimeoutMs);
     this.testRunner = new TestRunner(config.workspaceDir);
     this.state = {
       projectId: config.projectId,
@@ -81,7 +92,8 @@ export class LoopController {
       iteration++;
       this.state.iterationCount = iteration;
 
-      this.log.info(`\n── Iteration ${iteration} ──────────────────────────────────`);
+      StatusBar.update({ phase: 'planning', iteration });
+      this.log.info(`\n━━━ Iteration ${iteration}/${this.config.maxIterations} ━━━`);
 
       // ── 1. Plan ────────────────────────────────────────────────────────────
       const exitAfterPlan = await this.planPhase();
@@ -91,20 +103,45 @@ export class LoopController {
       const exitAfterExec = await this.executePhase();
       if (exitAfterExec) return exitAfterExec;
 
-      // ── 3. Test ────────────────────────────────────────────────────────────
-      const testReport = await this.testPhase();
-
-      // ── 4. Review ──────────────────────────────────────────────────────────
-      await this.reviewPhase();
+      // ── 3. Test + Review (concurrent) ─────────────────────────────────────
+      // testPhase uses async exec so it doesn't block the event loop,
+      // allowing review Claude calls to proceed in true parallel.
+      const [testReport] = await Promise.all([
+        this.testPhase(),
+        this.reviewPhase(),
+      ]);
 
       // ── 5. Cost check ──────────────────────────────────────────────────────
       const exitAfterCost = this.costCheckPhase();
       if (exitAfterCost) return exitAfterCost;
 
       // ── 6. Update memory / check exit conditions ───────────────────────────
+      const phaseAtPause = this.state.currentPhase; // capture before updateMemory resets it to 'idle'
       this.updateMemoryPhase(testReport);
       const exitCondition = this.checkExitConditions();
       if (exitCondition) return exitCondition;
+
+      // ── 7. Interactive pause (Ctrl+C) ──────────────────────────────────────
+      if (this.session?.isPaused()) {
+        const result = await this.session.promptMidLoop(
+          phaseAtPause,
+          this.state.iterationCount
+        );
+        if (result.action === 'quit') {
+          return this.buildExit('user-quit', 'User quit at interactive prompt');
+        }
+        if (result.action === 'redo') {
+          const detail = result.feedback
+            ? `User requested redo: ${result.feedback}`
+            : 'User requested redo';
+          if (result.feedback) this.appendFeedbackToGoal(result.feedback);
+          return this.buildExit('user-redo', detail);
+        }
+        if (result.feedback) {
+          this.appendFeedbackToGoal(result.feedback);
+          this.log.info('User feedback injected into goal');
+        }
+      }
     }
 
     return this.buildExit(
@@ -121,9 +158,20 @@ export class LoopController {
 
   private async planPhase(): Promise<LoopExitReason | null> {
     this.state.currentPhase = 'planning';
+    this.session?.reportPhase('planning');
+    StatusBar.update({ phase: 'planning' });
 
     if (this.queue.nextEligible() !== null) {
       this.log.debug('Eligible tasks already in queue — skipping re-planning');
+      return null;
+    }
+
+    // If tasks exist but none are eligible, something is genuinely blocked —
+    // don't trigger another plan cycle that would just duplicate the stuck tasks.
+    const stats = this.queue.stats();
+    const pendingCount = stats.PENDING + stats.RUNNING + stats.BLOCKED;
+    if (pendingCount > 0) {
+      this.log.warn('Tasks pending but none eligible — possible broken dependency chain', { stats });
       return null;
     }
 
@@ -151,41 +199,99 @@ export class LoopController {
 
   private async executePhase(): Promise<LoopExitReason | null> {
     this.state.currentPhase = 'executing';
+    this.session?.reportPhase('executing');
+    StatusBar.update({ phase: 'executing' });
+    StatusBar.clearAllTasks(); // clear planner/review rows from previous phase
 
-    let task = this.queue.nextEligible();
-    if (!task) {
+    if (this.optimizer.isBudgetExceeded()) {
+      return this.buildExit('cost-exceeded', 'Budget exceeded during execution');
+    }
+    if (this.session?.isPaused()) return null;
+
+    // Collect up to MAX_PARALLEL_TASKS independent eligible tasks.
+    // Calling start() marks each RUNNING so nextEligible() skips it on the
+    // next iteration — only tasks whose dependencies are all COMPLETE are picked.
+    const batch: Task[] = [];
+    let candidate = this.queue.nextEligible();
+    while (candidate !== null && batch.length < MAX_PARALLEL_TASKS) {
+      this.queue.start(candidate.id);
+      batch.push(candidate);
+      candidate = this.queue.nextEligible();
+    }
+
+    if (batch.length === 0) {
       this.log.warn('No eligible tasks to execute');
       return null;
     }
 
-    this.log.info('Phase: EXECUTE', {
-      queueStats: this.queue.stats(),
-    });
+    const label = batch.length > 1 ? `${batch.length} tasks in parallel` : '1 task';
+    this.log.info(`Phase: EXECUTE — ${label}`, { queueStats: this.queue.stats() });
+    batch.forEach(t => this.log.info(`▶ Starting: "${t.objective}"`));
 
-    // Execute up to 3 tasks per iteration to allow interleaved review/test cycles
-    let executed = 0;
-    while (task && executed < 3) {
-      if (this.optimizer.isBudgetExceeded()) {
-        return this.buildExit('cost-exceeded', 'Budget exceeded during execution');
-      }
+    // All Claude subprocesses run in parallel at the OS level.
+    const outcomes = await Promise.allSettled(
+      batch.map(task => this.executor.execute(task))
+    );
 
-      this.log.info('Starting task', { taskId: task.id, objective: task.objective });
-      this.queue.start(task.id);
+    const toRepair: Array<{ task: Task; error: string }> = [];
 
-      try {
-        const result = await this.executor.execute(task);
-        task = this.queue.update(task.id, { result });
+    for (let i = 0; i < batch.length; i++) {
+      const task = batch[i];
+      const outcome = outcomes[i];
+
+      if (outcome.status === 'fulfilled') {
+        this.queue.update(task.id, { result: outcome.value });
         this.queue.complete(task.id);
         this.state.completedTaskIds.push(task.id);
-        this.log.info('Task complete', { taskId: task.id, output: result.output });
-      } catch (err) {
-        this.log.error('Execution failed', { taskId: task.id, err: String(err) });
-        this.queue.fail(task.id, String(err));
+        StatusBar.update({ done: this.state.completedTaskIds.length, costUsd: this.state.totalCostUsd });
+        this.log.info(`✓ Task complete (${this.state.completedTaskIds.length} done)`);
+      } else {
+        const error = String(outcome.reason);
+        this.log.error('Execution failed', { taskId: task.id, err: error });
+        this.queue.fail(task.id, error);
         this.state.failedTaskIds.push(task.id);
-      }
+        StatusBar.update({ failed: this.state.failedTaskIds.length });
 
-      executed++;
-      task = this.queue.nextEligible();
+        if (task.retryCount < 2) {
+          toRepair.push({ task, error });
+        } else {
+          this.log.warn(`Task exhausted retries — giving up`, { taskId: task.id });
+        }
+      }
+    }
+
+    // Repair failed tasks in parallel: Claude diagnoses root cause,
+    // revises the objective, then re-queues for the next iteration.
+    if (toRepair.length > 0) {
+      this.log.info(`Repairing ${toRepair.length} failed task(s) in parallel`);
+      await Promise.allSettled(
+        toRepair.map(async ({ task, error }) => {
+          try {
+            const repair = await this.executor.repair(task, error);
+            this.log.info(`Root cause: ${repair.rootCause}`);
+
+            if (repair.revisedObjective) {
+              this.queue.update(task.id, { objective: repair.revisedObjective });
+              this.log.info(`Revised objective: "${repair.revisedObjective.slice(0, 80)}"`);
+            } else {
+              // No new objective, but append the root cause so the next
+              // attempt has explicit context about what went wrong.
+              const annotated = `${task.objective} [Previous attempt failed: ${repair.rootCause}]`;
+              this.queue.update(task.id, { objective: annotated });
+            }
+
+            this.queue.retry(task.id);
+            this.state.failedTaskIds = this.state.failedTaskIds.filter(id => id !== task.id);
+            this.log.info(`Task re-queued for retry (attempt ${task.retryCount + 1})`);
+          } catch (repairErr) {
+            this.log.warn('Repair failed — task stays failed', { taskId: task.id, err: String(repairErr) });
+          }
+        })
+      );
+    }
+
+    if (this.optimizer.isBudgetExceeded()) {
+      return this.buildExit('cost-exceeded', 'Budget exceeded during execution');
     }
 
     return null;
@@ -193,6 +299,8 @@ export class LoopController {
 
   private async testPhase(): Promise<TestReport> {
     this.state.currentPhase = 'testing';
+    this.session?.reportPhase('testing');
+    StatusBar.update({ phase: 'testing' });
     this.log.info('Phase: TEST');
 
     const report = await this.testRunner.run();
@@ -211,49 +319,60 @@ export class LoopController {
 
   private async reviewPhase(): Promise<void> {
     this.state.currentPhase = 'reviewing';
+    this.session?.reportPhase('reviewing');
+    StatusBar.update({ phase: 'reviewing' });
+    StatusBar.clearAllTasks(); // clear executor rows
     this.log.info('Phase: REVIEW');
 
-    const recentlyCompleted = this.memory
+    if (this.session?.isPaused()) {
+      this.state.criticalIssueCount = this.reviewer.countCriticalIssues();
+      return;
+    }
+
+    const toReview = this.memory
       .loadAllTasks()
       .filter(
         (t) =>
           t.status === 'COMPLETE' &&
           t.result &&
-          !this.state.completedTaskIds.slice(0, -3).includes(t.id) // only review last 3
+          !this.state.completedTaskIds.slice(0, -MAX_PARALLEL_REVIEWS).includes(t.id)
+      )
+      .slice(-MAX_PARALLEL_REVIEWS);
+
+    if (toReview.length > 0) {
+      this.log.info(`Reviewing ${toReview.length} task(s) in parallel`);
+
+      // Each review is an independent Claude call — run them all concurrently.
+      await Promise.allSettled(
+        toReview.map(async (task) => {
+          try {
+            const review = await this.reviewer.review(task);
+            if (!review.passed && task.retryCount < 2) {
+              this.log.warn('Review failed — requeueing task', { taskId: task.id });
+              this.queue.retry(task.id);
+              this.state.completedTaskIds = this.state.completedTaskIds.filter(
+                (id) => id !== task.id
+              );
+            }
+          } catch (err) {
+            this.log.warn('Review error (non-fatal)', { taskId: task.id, err: String(err) });
+          }
+        })
       );
-
-    for (const task of recentlyCompleted.slice(-3)) {
-      try {
-        const review = await this.reviewer.review(task);
-        this.log.info('Review result', {
-          taskId: task.id,
-          score: review.score,
-          passed: review.passed,
-          critiques: review.critiques.length,
-        });
-
-        // If review fails, retry the task
-        if (!review.passed && task.retryCount < 2) {
-          this.log.warn('Review failed — requeueing task', { taskId: task.id });
-          this.queue.retry(task.id);
-          this.state.completedTaskIds = this.state.completedTaskIds.filter(
-            (id) => id !== task.id
-          );
-        }
-      } catch (err) {
-        this.log.warn('Review error (non-fatal)', { taskId: task.id, err: String(err) });
-      }
     }
 
     this.state.criticalIssueCount = this.reviewer.countCriticalIssues();
   }
 
   private costCheckPhase(): LoopExitReason | null {
+    this.session?.reportPhase('cost-check');
+    StatusBar.update({ phase: 'cost-check' });
     const stats = this.optimizer.getStats();
 
     this.state.totalInputTokens = stats.totalInputTokens;
     this.state.totalOutputTokens = stats.totalOutputTokens;
     this.state.totalCostUsd = stats.totalSpendUsd;
+    StatusBar.update({ costUsd: stats.totalSpendUsd });
 
     this.log.info('Phase: COST', {
       spentUsd: stats.totalSpendUsd.toFixed(4),
@@ -271,12 +390,11 @@ export class LoopController {
     return null;
   }
 
-  private updateMemoryPhase(testReport: TestReport): void {
+  private updateMemoryPhase(_testReport: TestReport): void {
     this.state.currentPhase = 'idle';
     this.state.lastUpdatedAt = new Date().toISOString();
     this.persistState();
-
-    this.log.info('Phase: MEMORY UPDATED', this.memory.getSummary());
+    StatusBar.update({ phase: 'idle' });
   }
 
   // ── Exit conditions ────────────────────────────────────────────────────────
@@ -322,7 +440,8 @@ export class LoopController {
       });
       this.optimizer.restoreFromState(
         existing.totalInputTokens,
-        existing.totalOutputTokens
+        existing.totalOutputTokens,
+        existing.totalCostUsd
       );
       return existing;
     }
@@ -347,6 +466,10 @@ export class LoopController {
 
   private persistState(): void {
     this.memory.saveState(this.state);
+  }
+
+  private appendFeedbackToGoal(feedback: string): void {
+    this.config.goal += `\n\n[User feedback at iteration ${this.state.iterationCount}]: ${feedback}`;
   }
 
   private buildExit(
