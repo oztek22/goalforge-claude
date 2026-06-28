@@ -6,8 +6,12 @@ import { createLogger } from '../core/logger';
 import { callClaude } from './claude-cli';
 import * as StatusBar from '../core/status-bar';
 
-const SYSTEM_PROMPT = `You are a critical code reviewer in an autonomous development loop.
-Your job is to find real problems — not style preferences. Be specific and actionable.
+const SYSTEM_PROMPT = `You are an adversarial code reviewer in an autonomous development loop.
+Your DEFAULT verdict is REJECT (passed=false). Only set passed=true when there is clear,
+positive evidence that the task is correctly and completely implemented.
+
+Find real problems — not style preferences. Be specific and actionable. Verify the artifact,
+not the intent: does it actually work, not just look right?
 
 Return ONLY valid JSON (no markdown):
 {
@@ -25,12 +29,16 @@ Return ONLY valid JSON (no markdown):
 }
 
 Score guide:
-  90-100 : excellent, ship it
-  70-89  : good, minor issues
-  50-69  : mediocre, should fix before proceeding
-  0-49   : significant problems, must rework
+  90-100 : correct and complete — set passed=true
+  70-89  : mostly correct, minor gaps — set passed=true only if no blocking issues
+  50-69  : mediocre, should fix — passed=false
+  0-49   : significant problems — passed=false
 
-"passed" = score >= 70 AND no "critical" severity critiques.`;
+Rules:
+- If the task objective mentions creating a file and no file was created: score <= 30, passed=false
+- If tests fail or coverage regresses: score <= 40, passed=false
+- If critical issues exist: passed=false regardless of score
+- When in doubt, REJECT — a false rejection is safer than a false pass`;
 
 interface RawCritique {
   severity: Critique['severity'];
@@ -163,8 +171,8 @@ export class Reviewer {
         }
       }
     } catch (err) {
-      this.log.error('Failed to parse review response', { err: String(err) });
-      return this.emptyReview(taskId, 'Parse error');
+      this.log.error('Failed to parse review response — defaulting to REJECT', { err: String(err) });
+      return this.failedReview(taskId, 'Review parse error — cannot verify task output');
     }
 
     const critiques: Critique[] = (parsed.critiques ?? []).map((c) => ({
@@ -190,10 +198,29 @@ export class Reviewer {
   private emptyReview(taskId: string, reason: string): ReviewResult {
     return {
       taskId,
-      passed: true, // assume pass when review cannot run
+      passed: true, // assume pass only for operational skips (budget, no result)
       score: 100,
       critiques: [],
       suggestions: [reason],
+      reviewedAt: new Date().toISOString(),
+    };
+  }
+
+  private failedReview(taskId: string, reason: string): ReviewResult {
+    return {
+      taskId,
+      passed: false,
+      score: 0,
+      critiques: [{
+        id: `${taskId}:parse-error`,
+        taskId,
+        severity: 'high',
+        category: 'correctness',
+        description: reason,
+        suggestion: 'Re-run the task so the reviewer can verify its output',
+        createdAt: new Date().toISOString(),
+      }],
+      suggestions: [],
       reviewedAt: new Date().toISOString(),
     };
   }

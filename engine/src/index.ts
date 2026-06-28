@@ -8,10 +8,11 @@ import { defaultLoopConfig } from './core/config';
 import { createLogger } from './core/logger';
 import { InteractiveSession } from './components/interactive';
 import { callClaude } from './components/claude-cli';
+import { cleanupAfterSuccess, isSuccessExit } from './components/cleanup';
 import { LoopExitReason } from './core/types';
 import * as StatusBar from './core/status-bar';
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 const UPSTREAM_REPO = 'oztek22/goalforge-claude';
 const UPSTREAM_URL  = `https://github.com/${UPSTREAM_REPO}`;
@@ -650,8 +651,11 @@ async function main(): Promise<void> {
       continue;
     }
 
-    // Normal exit: update changelog, then ask for finish feedback
+    // Normal exit: update changelog, clean up memory on success, then ask for finish feedback
     appendToChangelog(workspace, memoryDir, currentGoal);
+    if (isSuccessExit(exit.reason)) {
+      cleanupAfterSuccess(memoryDir);
+    }
     const finish = await session.promptFinish(formatExitSummary(exit));
 
     if (finish.action === 'quit') {

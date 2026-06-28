@@ -110,12 +110,15 @@ export class Planner {
       .map((d) => `• ${d.title}: ${d.decision}`)
       .join('\n');
 
+    const priorLearnings = this.memory.readOutbox(1500);
+
     return [
       `Phase: ${state.currentPhase}`,
       `Iteration: ${state.iterationCount}`,
       `Completed tasks: ${completed}`,
       `Coverage: ${state.coveragePercent}%`,
       decisions.length > 0 ? `\nArchitecture decisions:\n${decisionSummary}` : '',
+      priorLearnings ? `\nPrior run learnings:\n${priorLearnings}` : '',
     ]
       .filter(Boolean)
       .join('\n');

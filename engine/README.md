@@ -24,6 +24,7 @@ An autonomous AI development loop that decomposes a high-level goal into tasks, 
 
 ```
 index.ts
+  ├── cleanupAfterSuccess()   ← post-success full memory wipe (cleanup.ts)
   └── LoopController          ← main event loop
         ├── Planner           ← goal → ordered task list (Claude)
         ├── TaskQueue         ← dependency-aware in-memory queue + disk persistence
@@ -31,13 +32,13 @@ index.ts
         ├── TestRunner        ← runs jest/npm test in workspace, parses report
         ├── Reviewer          ← critiques completed task output (Claude)
         ├── CostOptimizer     ← spend budget tracking + prompt-level response cache
-        └── MemoryStore       ← file-system KV store for all persistent state
+        └── MemoryStore       ← file-system KV store + per-iteration cleanup
 ```
 
-Each iteration of the loop runs six phases in order:
+Each iteration of the loop runs seven phases in order:
 
 ```
-PLAN → EXECUTE → TEST → REVIEW → COST CHECK → MEMORY UPDATE → (repeat or exit)
+PLAN → EXECUTE → TEST → REVIEW → COST CHECK → MEMORY UPDATE → CLEANUP → (repeat or exit)
 ```
 
 ---
@@ -64,7 +65,8 @@ The main orchestrator. Owns all component instances and drives the six-phase loo
 | `testPhase` | Calls `TestRunner`, updates coverage + pass/fail on state. |
 | `reviewPhase` | Reviews the last 3 completed tasks; requeues if score < 70 and `retryCount < 2`. |
 | `costCheckPhase` | Exits loop if total spend exceeds `maxCostUsd`. |
-| `updateMemoryPhase` | Persists `ProjectState` to disk and logs memory summary; `checkExitConditions()` is called immediately after by the loop. |
+| `updateMemoryPhase` | Persists `ProjectState` to disk; resets `currentPhase` to `idle`. |
+| `cleanupPhase` | Calls `MemoryStore.cleanupMemory()`: removes critique files for completed tasks and evicts oldest cache entries beyond the 200-entry cap. |
 
 ---
 
@@ -158,10 +160,22 @@ memory/
   state/project.json          ← single ProjectState document
   tasks/<uuid>.json           ← one file per task
   critiques/<uuid>.json       ← one file per Critique
-  decisions/<uuid>.json       ← one file per ArchitectureDecision
+  decisions/<uuid>.json       ← one file per ArchitectureDecision (preserved on cleanup)
   files/<path-hash>.json      ← metadata for each generated file
   cache/<sha256>.json         ← CostOptimizer response cache entries
 ```
+
+**`cleanupMemory(completedTaskIds, maxCacheEntries = 200)`** — called after every iteration. Deletes critique files whose `taskId` is in `completedTaskIds`, and evicts the oldest cache entries once the cache exceeds `maxCacheEntries` files.
+
+---
+
+### `Cleanup` (`src/components/cleanup.ts`)
+
+Standalone module called from `index.ts` after a successful loop exit (after `appendToChangelog`).
+
+**`cleanupAfterSuccess(memoryDir)`** — wipes `tasks/`, `critiques/`, `cache/`, `files/`, and `state/project.json`. Preserves `decisions/` and `OUTBOX.md`. Returns a `CleanupResult` with per-directory counts.
+
+**`isSuccessExit(reason)`** — returns `true` for `no-critical-issues`, `all-tasks-complete`, `coverage-met`, `tests-passing`.
 
 ---
 

@@ -177,7 +177,14 @@ It contains:
 
 This folder is automatically added to `.gitignore` on first run — you don't need to commit it.
 
-To start completely fresh on the same goal, delete the `.goalforge/` folder before running again.
+### Automatic cleanup
+
+GoalForge keeps the memory folder tidy automatically:
+
+- **After every iteration** — critique files for completed tasks are deleted (they're no longer needed for re-review), and old cache entries are evicted once the cache grows beyond 200 files.
+- **After a successful run** — all task files, critiques, cached responses, and the project state are wiped. Architecture decisions and the cross-run learning log are kept. This means the next `goalforge` invocation from the same directory starts fresh rather than attempting to resume a completed project.
+
+To start completely fresh on an incomplete or interrupted run, delete the `.goalforge/` folder before running again.
 
 ---
 

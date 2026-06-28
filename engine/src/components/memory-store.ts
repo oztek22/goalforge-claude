@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import {
   ArchitectureDecision,
@@ -149,6 +149,68 @@ export class MemoryStore {
 
   getCacheSize(): number {
     return readdirSync(this.dirs.cache).filter((f) => f.endsWith('.json')).length;
+  }
+
+  // ── OUTBOX (cross-run learning log) ───────────────────────────────────────
+
+  /** Append a dated entry to .goalforge/OUTBOX.md for the next run to read. */
+  appendOutbox(entry: string): void {
+    const path = join(this.dirs.root, '..', 'OUTBOX.md');
+    appendFileSync(path, entry, 'utf-8');
+  }
+
+  /** Return the last `maxChars` of OUTBOX.md for context injection. */
+  readOutbox(maxChars = 2000): string {
+    const path = join(this.dirs.root, '..', 'OUTBOX.md');
+    if (!existsSync(path)) return '';
+    const content = readFileSync(path, 'utf-8');
+    return content.length > maxChars ? content.slice(-maxChars) : content;
+  }
+
+  // ── Cleanup ────────────────────────────────────────────────────────────────
+
+  /**
+   * Remove stale files that are no longer needed for the next run:
+   *  - critique files for tasks that have been completed and passed review
+   *  - oldest cache entries beyond `maxCacheEntries` to cap disk growth
+   */
+  cleanupMemory(
+    completedTaskIds: string[],
+    maxCacheEntries = 200
+  ): { critiquesRemoved: number; cacheEntriesRemoved: number } {
+    let critiquesRemoved = 0;
+    let cacheEntriesRemoved = 0;
+
+    // Drop critiques for fully-completed tasks — they won't be reviewed again.
+    const completedSet = new Set(completedTaskIds);
+    for (const critique of this.readDir<{ id: string; taskId: string }>(this.dirs.critiques)) {
+      if (completedSet.has(critique.taskId)) {
+        try {
+          unlinkSync(join(this.dirs.critiques, `${critique.id}.json`));
+          critiquesRemoved++;
+        } catch { /* non-fatal */ }
+      }
+    }
+
+    // Evict the oldest cache entries once the cache grows beyond the cap.
+    const cacheFiles = readdirSync(this.dirs.cache)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => {
+        const path = join(this.dirs.cache, f);
+        const entry = this.read<{ cachedAt: string }>(path);
+        return { path, cachedAt: entry?.cachedAt ?? '' };
+      })
+      .sort((a, b) => a.cachedAt.localeCompare(b.cachedAt)); // oldest first
+
+    const excess = cacheFiles.length - maxCacheEntries;
+    for (let i = 0; i < excess; i++) {
+      try {
+        unlinkSync(cacheFiles[i].path);
+        cacheEntriesRemoved++;
+      } catch { /* non-fatal */ }
+    }
+
+    return { critiquesRemoved, cacheEntriesRemoved };
   }
 
   // ── Summary ────────────────────────────────────────────────────────────────

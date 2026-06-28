@@ -9,6 +9,33 @@ export interface CliResult {
   costUsd: number;
 }
 
+/** Thrown when the Claude CLI reports a rate/usage limit. Loop can sleep and retry. */
+export class RateLimitError extends Error {
+  constructor(public readonly resetDelayMs: number) {
+    super(`Rate limit hit — resets in ${Math.ceil(resetDelayMs / 60_000)}m`);
+    this.name = 'RateLimitError';
+  }
+}
+
+const RATE_LIMIT_PATTERN =
+  /\b(session|usage|rate)\s+limit\b|hit your (session|usage) limit|reached your usage|limit reached|too many requests/i;
+
+function parseResetDelayMs(text: string): number {
+  const match = text.match(/reset[^.]*?(?:at|@)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+  if (match) {
+    const hour = parseInt(match[1], 10);
+    const minute = parseInt(match[2] ?? '0', 10);
+    const isPm = match[3].toLowerCase() === 'pm';
+    const resetHour = isPm ? (hour === 12 ? 12 : hour + 12) : (hour === 12 ? 0 : hour);
+    const now = new Date();
+    const reset = new Date(now);
+    reset.setHours(resetHour, minute, 0, 0);
+    if (reset <= now) reset.setDate(reset.getDate() + 1);
+    return Math.max(60_000, reset.getTime() - now.getTime());
+  }
+  return 30 * 60_000; // default: 30 minutes
+}
+
 // Max chars of Claude's streaming response to echo to the terminal.
 const STREAM_PREVIEW_LIMIT = 500;
 
@@ -77,6 +104,8 @@ export async function callClaude(
     let resultEvent: Record<string, unknown> | null = null;
     let stderr = '';
     let lineBuffer = '';
+    let rateLimitDetected = false;
+    let rateLimitResetMs = 0;
 
     // Heartbeat: redraw status bar every 5 s so the elapsed timer stays live.
     const heartbeat = setInterval(() => StatusBar.update({}), 5_000);
@@ -123,6 +152,12 @@ export async function callClaude(
             }
           }
         }
+      } else if (event.type === 'rate_limit_event') {
+        rateLimitDetected = true;
+        const info = event.rate_limit_info as Record<string, unknown> | undefined;
+        if (typeof info?.resets_at === 'number') {
+          rateLimitResetMs = Math.max(0, (info.resets_at as number) * 1000 - Date.now());
+        }
       } else if (event.type === 'result') {
         resultEvent = event;
       }
@@ -164,6 +199,14 @@ export async function callClaude(
 
       // Use the result event as the authoritative source of truth.
       const res = resultEvent;
+
+      // Rate limit: structured event OR text pattern in stderr/result
+      const combinedOutput = stderr + (typeof resultEvent?.result === 'string' ? resultEvent.result : '');
+      if (rateLimitDetected || RATE_LIMIT_PATTERN.test(combinedOutput)) {
+        const delay = rateLimitResetMs || parseResetDelayMs(combinedOutput);
+        reject(new RateLimitError(delay));
+        return;
+      }
 
       if (code !== 0) {
         const message = (typeof res?.result === 'string' && res.result.trim())

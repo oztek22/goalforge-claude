@@ -1,9 +1,14 @@
+import { existsSync, unlinkSync } from 'fs';
+import { join } from 'path';
 import { LoopConfig, LoopExitReason, ProjectState, Task, TestReport } from './core/types';
 
 // Max independent tasks to execute simultaneously (each spawns its own Claude process).
 const MAX_PARALLEL_TASKS = 3;
 // Max tasks to review simultaneously.
 const MAX_PARALLEL_REVIEWS = 3;
+// Halt if this many consecutive iterations complete with zero new task completions.
+const STALL_THRESHOLD = 3;
+
 import { DEFAULT_BUDGET } from './core/config';
 import { createLogger } from './core/logger';
 import * as StatusBar from './core/status-bar';
@@ -15,6 +20,7 @@ import { Executor } from './components/executor';
 import { Reviewer } from './components/reviewer';
 import { TestRunner } from './components/test-runner';
 import { InteractiveSession } from './components/interactive';
+import { RateLimitError } from './components/claude-cli';
 
 /**
  * LoopController is the autonomous development loop.
@@ -38,12 +44,15 @@ export class LoopController {
   private readonly reviewer: Reviewer;
   private readonly testRunner: TestRunner;
   private state: ProjectState;
+  private consecutiveZeroProgress = 0;
+  private readonly stopFile: string;
 
   constructor(
     private readonly config: LoopConfig,
     private readonly session?: InteractiveSession
   ) {
     this.memory = new MemoryStore(config.memoryDir);
+    this.stopFile = join(config.memoryDir, '..', 'STOP');
     this.queue = new TaskQueue(this.memory);
     this.optimizer = new CostOptimizer(DEFAULT_BUDGET, this.memory);
     this.planner = new Planner(this.optimizer, this.memory, config.dryRun, config.claudeTimeoutMs);
@@ -89,58 +98,97 @@ export class LoopController {
     let iteration = 0;
 
     while (iteration < this.config.maxIterations) {
+      // ── File-based STOP switch ──────────────────────────────────────────────
+      // `touch .goalforge/STOP` halts the loop gracefully at an iteration boundary.
+      if (existsSync(this.stopFile)) {
+        unlinkSync(this.stopFile);
+        return this.buildExit('user-quit', 'Stopped via .goalforge/STOP file');
+      }
+
       iteration++;
       this.state.iterationCount = iteration;
 
       StatusBar.update({ phase: 'planning', iteration });
       this.log.info(`\n━━━ Iteration ${iteration}/${this.config.maxIterations} ━━━`);
 
-      // ── 1. Plan ────────────────────────────────────────────────────────────
-      const exitAfterPlan = await this.planPhase();
-      if (exitAfterPlan) return exitAfterPlan;
+      const completedAtStart = this.state.completedTaskIds.length;
 
-      // ── 2. Execute ─────────────────────────────────────────────────────────
-      const exitAfterExec = await this.executePhase();
-      if (exitAfterExec) return exitAfterExec;
+      try {
+        // ── 1. Plan ──────────────────────────────────────────────────────────
+        const exitAfterPlan = await this.planPhase();
+        if (exitAfterPlan) return exitAfterPlan;
 
-      // ── 3. Test + Review (concurrent) ─────────────────────────────────────
-      // testPhase uses async exec so it doesn't block the event loop,
-      // allowing review Claude calls to proceed in true parallel.
-      const [testReport] = await Promise.all([
-        this.testPhase(),
-        this.reviewPhase(),
-      ]);
+        // ── 2. Execute ────────────────────────────────────────────────────────
+        const exitAfterExec = await this.executePhase();
+        if (exitAfterExec) return exitAfterExec;
 
-      // ── 5. Cost check ──────────────────────────────────────────────────────
-      const exitAfterCost = this.costCheckPhase();
-      if (exitAfterCost) return exitAfterCost;
+        // ── 3. Test + Review (concurrent) ─────────────────────────────────────
+        // testPhase uses async exec so it doesn't block the event loop,
+        // allowing review Claude calls to proceed in true parallel.
+        const [testReport] = await Promise.all([
+          this.testPhase(),
+          this.reviewPhase(),
+        ]);
 
-      // ── 6. Update memory / check exit conditions ───────────────────────────
-      const phaseAtPause = this.state.currentPhase; // capture before updateMemory resets it to 'idle'
-      this.updateMemoryPhase(testReport);
-      const exitCondition = this.checkExitConditions();
-      if (exitCondition) return exitCondition;
+        // ── 4. Cost check ──────────────────────────────────────────────────────
+        const exitAfterCost = this.costCheckPhase();
+        if (exitAfterCost) return exitAfterCost;
 
-      // ── 7. Interactive pause (Ctrl+C) ──────────────────────────────────────
-      if (this.session?.isPaused()) {
-        const result = await this.session.promptMidLoop(
-          phaseAtPause,
-          this.state.iterationCount
+        // ── 5. Update memory / cleanup / check exit conditions ─────────────────
+        const phaseAtPause = this.state.currentPhase;
+        this.updateMemoryPhase(testReport);
+        this.cleanupPhase();
+        const exitCondition = this.checkExitConditions();
+        if (exitCondition) return exitCondition;
+
+        // ── 6. Interactive pause (Ctrl+C) ──────────────────────────────────────
+        if (this.session?.isPaused()) {
+          const result = await this.session.promptMidLoop(
+            phaseAtPause,
+            this.state.iterationCount
+          );
+          if (result.action === 'quit') {
+            return this.buildExit('user-quit', 'User quit at interactive prompt');
+          }
+          if (result.action === 'redo') {
+            const detail = result.feedback
+              ? `User requested redo: ${result.feedback}`
+              : 'User requested redo';
+            if (result.feedback) this.appendFeedbackToGoal(result.feedback);
+            return this.buildExit('user-redo', detail);
+          }
+          if (result.feedback) {
+            this.appendFeedbackToGoal(result.feedback);
+            this.log.info('User feedback injected into goal');
+          }
+        }
+      } catch (err) {
+        if (err instanceof RateLimitError) {
+          // Don't count a rate-limit pause as an iteration — retry immediately after sleep.
+          iteration--;
+          await this.sleepForRateLimit(err.resetDelayMs);
+          continue;
+        }
+        throw err;
+      }
+
+      // ── Budget safety net: stall detection ─────────────────────────────────
+      // If N consecutive iterations produce zero new completions, the loop is
+      // grinding on broken state. Halt loudly rather than burning budget silently.
+      const newCompletions = this.state.completedTaskIds.length - completedAtStart;
+      if (newCompletions === 0) {
+        this.consecutiveZeroProgress++;
+        if (this.consecutiveZeroProgress >= STALL_THRESHOLD) {
+          return this.buildExit(
+            'stalled',
+            `No task completions in ${STALL_THRESHOLD} consecutive iterations — loop is stuck`
+          );
+        }
+        this.log.warn(
+          `Zero progress this iteration (${this.consecutiveZeroProgress}/${STALL_THRESHOLD} before stall halt)`
         );
-        if (result.action === 'quit') {
-          return this.buildExit('user-quit', 'User quit at interactive prompt');
-        }
-        if (result.action === 'redo') {
-          const detail = result.feedback
-            ? `User requested redo: ${result.feedback}`
-            : 'User requested redo';
-          if (result.feedback) this.appendFeedbackToGoal(result.feedback);
-          return this.buildExit('user-redo', detail);
-        }
-        if (result.feedback) {
-          this.appendFeedbackToGoal(result.feedback);
-          this.log.info('User feedback injected into goal');
-        }
+      } else {
+        this.consecutiveZeroProgress = 0;
       }
     }
 
@@ -294,6 +342,13 @@ export class LoopController {
       return this.buildExit('cost-exceeded', 'Budget exceeded during execution');
     }
 
+    // Re-throw a RateLimitError so the outer loop can sleep and retry.
+    const rateLimitErr = outcomes
+      .filter((o): o is PromiseRejectedResult => o.status === 'rejected')
+      .map((o) => o.reason)
+      .find((r) => r instanceof RateLimitError);
+    if (rateLimitErr) throw rateLimitErr;
+
     return null;
   }
 
@@ -397,6 +452,13 @@ export class LoopController {
     StatusBar.update({ phase: 'idle' });
   }
 
+  private cleanupPhase(): void {
+    const stats = this.memory.cleanupMemory(this.state.completedTaskIds);
+    if (stats.critiquesRemoved > 0 || stats.cacheEntriesRemoved > 0) {
+      this.log.info('Memory cleanup', stats);
+    }
+  }
+
   // ── Exit conditions ────────────────────────────────────────────────────────
 
   private checkExitConditions(): LoopExitReason | null {
@@ -478,6 +540,40 @@ export class LoopController {
   ): LoopExitReason {
     this.log.info(`\n=== LOOP EXIT: ${reason.toUpperCase()} ===`, { detail });
     this.persistState();
+    this.writeOutbox(reason, detail);
     return { reason, detail, finalState: { ...this.state } };
+  }
+
+  /** Append a dated run summary to .goalforge/OUTBOX.md for the next run to learn from. */
+  private writeOutbox(reason: string, detail: string): void {
+    const entry = [
+      `\n## Run ended ${new Date().toISOString().replace('T', ' ').slice(0, 16)}`,
+      `- Exit reason: ${reason} — ${detail}`,
+      `- Completed: ${this.state.completedTaskIds.length} task(s)`,
+      `- Failed: ${this.state.failedTaskIds.length} task(s)`,
+      `- Iterations: ${this.state.iterationCount}`,
+      `- Cost: $${this.state.totalCostUsd.toFixed(4)}`,
+      `- Coverage: ${this.state.coveragePercent}%`,
+      '',
+    ].join('\n');
+    try {
+      this.memory.appendOutbox(entry);
+    } catch {
+      // non-fatal — OUTBOX write failure must not prevent normal exit
+    }
+  }
+
+  /** Sleep until the rate limit resets, checking the STOP file every 30 s. */
+  private async sleepForRateLimit(resetDelayMs: number): Promise<void> {
+    const minutes = Math.ceil(resetDelayMs / 60_000);
+    this.log.warn(`Rate limit — sleeping ${minutes}m until reset`);
+    StatusBar.update({ phase: 'idle' });
+    let remaining = resetDelayMs;
+    while (remaining > 0) {
+      if (existsSync(this.stopFile)) break;
+      const chunk = Math.min(30_000, remaining);
+      await new Promise<void>((r) => setTimeout(r, chunk));
+      remaining -= chunk;
+    }
   }
 }

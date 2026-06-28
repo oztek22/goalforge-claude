@@ -44,11 +44,14 @@ you type a goal
   │  ⑤ EXIT?     all tasks done · goal met · budget hit     │
   │      │  no → back to ①                                  │
   │      ▼  yes                                             │
-  │  ⑥ MEMORY    STATE.md updated, loop exits               │
+  │  ⑥ MEMORY    state persisted, stale critiques removed   │
+  │      │                                                  │
+  │      ▼                                                  │
+  │  ⑦ CLEANUP   tasks/cache/state wiped on success         │
   └─────────────────────────────────────────────────────────┘
       │
       ▼
-  working code in ./workspace/
+  working code in your project root
 ```
 
 Each phase runs as a **fresh claude subprocess** — no shared context window, no token bleed between calls. The state machine is typed TypeScript that survives crashes and resumes mid-task.
@@ -164,6 +167,7 @@ State is read from `.goalforge/memory/state/project.json`. Any task that was mid
 - **Spend cap** — `--cost <N>` hard-stops the loop before you overshoot your budget.
 - **Coverage gate** — the loop won't exit until Jest reports ≥ target line coverage (default 95%).
 - **Retry tracking** — failed tasks get `(retries: N)` annotations. After 3 retries the task is marked `[F]` and skipped.
+- **Automatic cleanup** — after every iteration, stale critique files and excess cache entries are pruned. After a successful run, all task/critique/cache/state files are wiped so the next run starts clean. Architecture decisions (`decisions/`) and the cross-run learning log (`OUTBOX.md`) are always preserved.
 
 ---
 
@@ -414,7 +418,9 @@ goalforge/                         # project root
 │   │   │   ├── executor.ts        # Phase 2: code generation
 │   │   │   ├── test-runner.ts     # Phase 3: Jest + coverage
 │   │   │   ├── reviewer.ts        # Phase 4: Haiku diff review
-│   │   │   └── cost-optimizer.ts  # spend tracking + prompt cache
+│   │   │   ├── cost-optimizer.ts  # spend tracking + prompt cache
+│   │   │   ├── memory-store.ts    # file-system KV store + per-iteration cleanup
+│   │   │   └── cleanup.ts         # post-success full memory wipe
 │   │   └── core/
 │   │       ├── config.ts          # defaults + loop config type
 │   │       ├── logger.ts          # per-component colour logger

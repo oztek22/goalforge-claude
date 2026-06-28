@@ -148,7 +148,8 @@ export interface LoopConfig {
 
 export interface LoopExitReason {
   reason: 'coverage-met' | 'tests-passing' | 'cost-exceeded' | 'no-critical-issues' |
-          'max-iterations' | 'all-tasks-complete' | 'fatal-error' | 'user-redo' | 'user-quit';
+          'max-iterations' | 'all-tasks-complete' | 'fatal-error' | 'user-redo' | 'user-quit' |
+          'stalled';
   detail: string;
   finalState: ProjectState;
 }

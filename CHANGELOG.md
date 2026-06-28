@@ -10,6 +10,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [1.2.0] — 2026-06-28
+
+### Added
+
+- **Per-iteration memory cleanup** — a new `cleanupPhase()` runs at the end of every iteration (after `updateMemoryPhase`). It calls `MemoryStore.cleanupMemory()`, which removes critique files for tasks already in `completedTaskIds` (they won't be re-reviewed and were inflating `criticalIssueCount`) and evicts the oldest cache entries once the cache exceeds 200 files, preventing unbounded disk growth.
+- **Post-success full cleanup** (`engine/src/components/cleanup.ts`) — a new module that wipes all run-specific memory files after a successful loop exit (`no-critical-issues`, `all-tasks-complete`, `coverage-met`, `tests-passing`). Clears `tasks/`, `critiques/`, `cache/`, `files/`, and `state/project.json`. Preserves `decisions/` (ADRs carry forward to future runs) and `OUTBOX.md` (cross-run learning log). Called from `index.ts` after `appendToChangelog()` so changelog generation still has access to task files. `isSuccessExit()` helper exported for external callers.
+
+### Changed
+
+- **Loop comment updated** — the iteration comment in `run()` now reads "Update memory / cleanup / check exit conditions" to reflect the added cleanup step.
+
+---
+
 ## [1.1.1] — 2026-06-28
 
 ### Fixed
@@ -107,6 +120,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 - Zero runtime dependencies — the engine shell is `{}`; all AI calls go through the `claude` subprocess
 - `files` field in `package.json` whitelists only `dist/` and `README.md` in the npm tarball (38.8 kB packed)
 
+[1.2.0]: https://github.com/oztek22/goalforge-claude/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/oztek22/goalforge-claude/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/oztek22/goalforge-claude/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/oztek22/goalforge-claude/releases/tag/v1.0.0
