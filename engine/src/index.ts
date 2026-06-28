@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { join } from 'path';
 import { execSync } from 'child_process';
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import * as readline from 'readline';
 import { LoopController } from './loop-controller';
 import { defaultLoopConfig } from './core/config';
@@ -11,7 +11,7 @@ import { callClaude } from './components/claude-cli';
 import { LoopExitReason } from './core/types';
 import * as StatusBar from './core/status-bar';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 const UPSTREAM_REPO = 'oztek22/goalforge-claude';
 const UPSTREAM_URL  = `https://github.com/${UPSTREAM_REPO}`;
@@ -402,7 +402,14 @@ Return ONLY a clear, specific, actionable goal (1–2 sentences). No markdown, n
   return goal;
 }
 
-// ── Auto-changelog: append completed tasks to CHANGELOG.md ──────────────────
+// ── Changelog + run log ──────────────────────────────────────────────────────
+
+interface TaskRecord {
+  status?: string;
+  objective?: string;
+  result?: { output?: string; filesCreated?: string[] };
+  retryCount?: number;
+}
 
 function categoriseObjective(objective: string): 'Added' | 'Changed' | 'Fixed' {
   const lc = objective.toLowerCase();
@@ -411,35 +418,75 @@ function categoriseObjective(objective: string): 'Added' | 'Changed' | 'Fixed' {
   return 'Changed';
 }
 
+/**
+ * Derive a short human-readable summary of what was accomplished.
+ * One bullet per category (Added / Changed / Fixed), capped at a handful of words each.
+ */
+function goalSummaryLine(goal: string): string {
+  // Take the first sentence / clause of the goal, max 80 chars
+  const first = goal.split('\n')[0].replace(/[.!?].*$/, '').trim();
+  return first.length > 80 ? first.slice(0, 77) + '…' : first;
+}
+
 function appendToChangelog(workspace: string, memoryDir: string, goal: string): void {
   const changelogPath = join(workspace, 'CHANGELOG.md');
   const tasksDir = join(memoryDir, 'tasks');
 
-  const byCategory: Record<'Added' | 'Changed' | 'Fixed', string[]> = { Added: [], Changed: [], Fixed: [] };
+  const tasks: TaskRecord[] = [];
   if (existsSync(tasksDir)) {
     for (const file of readdirSync(tasksDir).filter(f => f.endsWith('.json'))) {
       try {
-        const task = JSON.parse(readFileSync(join(tasksDir, file), 'utf-8')) as { status?: string; objective?: string };
-        if (task.status === 'COMPLETE' && task.objective) {
-          byCategory[categoriseObjective(task.objective)].push(task.objective);
-        }
+        tasks.push(JSON.parse(readFileSync(join(tasksDir, file), 'utf-8')) as TaskRecord);
       } catch { /* skip corrupt file */ }
     }
   }
 
-  const total = Object.values(byCategory).reduce((n, arr) => n + arr.length, 0);
-  if (total === 0) return;
+  const completed = tasks.filter(t => t.status === 'COMPLETE' && t.objective);
+  if (completed.length === 0) return;
 
   const date = new Date().toISOString().slice(0, 10);
-  const lines: string[] = ['', `### GoalForge run — ${date}`, '', `> ${goal.split('\n')[0].slice(0, 100)}`];
+
+  // ── Write detailed run log to logs/ ────────────────────────────────────────
+  const logsDir = join(workspace, 'logs');
+  mkdirSync(logsDir, { recursive: true });
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const logPath = join(logsDir, `goalforge-${ts}.md`);
+
+  const byCategory: Record<'Added' | 'Changed' | 'Fixed', TaskRecord[]> = { Added: [], Changed: [], Fixed: [] };
+  for (const t of completed) {
+    byCategory[categoriseObjective(t.objective!)].push(t);
+  }
+
+  const logLines: string[] = [
+    `# GoalForge run — ${date}`,
+    '',
+    `**Goal:** ${goal.split('\n')[0].slice(0, 200)}`,
+    `**Tasks completed:** ${completed.length}`,
+    '',
+  ];
   for (const cat of ['Added', 'Changed', 'Fixed'] as const) {
-    if (byCategory[cat].length > 0) {
-      lines.push('', `#### ${cat}`, '');
-      byCategory[cat].forEach(obj => lines.push(`- ${obj}`));
+    if (byCategory[cat].length === 0) continue;
+    logLines.push(`## ${cat}`, '');
+    for (const t of byCategory[cat]) {
+      logLines.push(`### ${t.objective}`);
+      if (t.result?.output) logLines.push('', t.result.output);
+      if (t.result?.filesCreated?.length) {
+        logLines.push('', '**Files:**');
+        t.result.filesCreated.forEach(f => logLines.push(`- \`${f}\``));
+      }
+      logLines.push('');
     }
   }
-  lines.push('');
-  const entry = lines.join('\n');
+  writeFileSync(logPath, logLines.join('\n'), 'utf-8');
+
+  // ── Write one short bullet to CHANGELOG.md ─────────────────────────────────
+  const summary = goalSummaryLine(goal);
+  // Pick the dominant category (most tasks) for the bullet prefix
+  const cats: Array<'Added' | 'Changed' | 'Fixed'> = ['Added', 'Changed', 'Fixed'];
+  const dominantCat = cats.sort((a, b) => byCategory[b].length - byCategory[a].length)[0];
+
+  const bullet = `- **[${dominantCat}]** ${summary}`;
+  const entry = `\n${bullet}\n`;
 
   let content = existsSync(changelogPath) ? readFileSync(changelogPath, 'utf-8') : '';
 
@@ -453,12 +500,13 @@ function appendToChangelog(workspace: string, memoryDir: string, goal: string): 
     } else if (content.length > 0) {
       content = content.trimEnd() + '\n\n## [Unreleased]\n' + entry;
     } else {
-      content = `# Changelog\n\nAll notable changes are documented here.\n\n## [Unreleased]\n${entry}`;
+      content = `# Changelog\n\n## [Unreleased]\n${entry}`;
     }
   }
 
   writeFileSync(changelogPath, content, 'utf-8');
   log.info('Changelog updated', { path: changelogPath });
+  log.info('Run log written', { path: logPath });
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────

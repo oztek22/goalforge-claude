@@ -10,6 +10,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [1.1.1] — 2026-06-28
+
+### Fixed
+
+- Auto-changelog now writes a single short bullet to `CHANGELOG.md` instead of dumping every task objective. Full task details (objectives, outputs, files written) go to a timestamped file under `logs/`.
+
+---
+
 ## [1.1.0] — 2026-06-28
 
 ### Added
@@ -99,5 +107,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 - Zero runtime dependencies — the engine shell is `{}`; all AI calls go through the `claude` subprocess
 - `files` field in `package.json` whitelists only `dist/` and `README.md` in the npm tarball (38.8 kB packed)
 
+[1.1.1]: https://github.com/oztek22/goalforge-claude/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/oztek22/goalforge-claude/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/oztek22/goalforge-claude/releases/tag/v1.0.0

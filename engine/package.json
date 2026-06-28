@@ -1,6 +1,6 @@
 {
   "name": "goalforge-claude",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Describe what you want. Claude builds it. No API key needed.",
   "main": "dist/index.js",
   "bin": {
