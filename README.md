@@ -8,7 +8,7 @@
 **Type a goal. Walk away. Come back to working code.**
 
 GoalForge runs an autonomous 6-phase loop powered by the Claude CLI —  
-no API key, no billing dashboard, just your existing Claude subscription.
+no API key, no billing dashboard, just require existing Claude subscription.
 
 <br/>
 
@@ -23,7 +23,7 @@ no API key, no billing dashboard, just your existing Claude subscription.
 ## How it works
 
 ```
-you type a goal
+user types a goal
       │
       ▼
   ┌─────────────────────────────────────────────────────────┐
@@ -38,7 +38,7 @@ you type a goal
   │  ③ TEST      Jest runs; coverage is measured            │
   │      │                                                  │
   │      ▼                                                  │
-  │  ④ REVIEW    Haiku checks diff for regressions          │
+  │  ④ REVIEW    Claude checks diff for regressions          │
   │      │                                                  │
   │      ▼                                                  │
   │  ⑤ EXIT?     all tasks done · goal met · budget hit     │
@@ -51,7 +51,7 @@ you type a goal
   └─────────────────────────────────────────────────────────┘
       │
       ▼
-  working code in your project root
+  working code in project root
 ```
 
 Each phase runs as a **fresh claude subprocess** — no shared context window, no token bleed between calls. The state machine is typed TypeScript that survives crashes and resumes mid-task.
@@ -92,15 +92,15 @@ $ goalforge "Add a dark mode toggle to the Settings page"
 ║   ⏸  GoalForge paused  ·  executing  ·  iter 2      ║
 ╚══════════════════════════════════════════════════════╝
   Enter             → continue as-is
-  <your feedback>   → inject feedback and continue
+  <new prompt>      → inject prompt and continue
   redo              → restart from scratch (same goal)
-  redo <feedback>   → restart with extra direction
+  redo <prompt>     → restart with extra direction
   quit  /  q        → stop
 
 > make sure the toggle persists across page reloads
 ```
 
-> Record your own demo with [VHS](https://github.com/charmbracelet/vhs) or [asciinema](https://asciinema.org) and drop the GIF in `assets/`.
+> Record demo with [VHS](https://github.com/charmbracelet/vhs) or [asciinema](https://asciinema.org) and drop the GIF in `assets/`.
 
 ---
 
@@ -127,7 +127,7 @@ $ goalforge
  ◈ executing       iter 1/20    ✓ 2 done    $0.0621
 ```
 
-GoalForge reads the file tree, samples key source files, asks Claude what matters most, then builds it. You walked away after one command.
+GoalForge samples the file tree, identifies high-signal entry points, derives a goal from what it finds, and starts building. One command.
 
 ---
 
@@ -159,12 +159,12 @@ State is read from `.goalforge/memory/state/project.json`. Any task that was mid
 
 ## Key concepts
 
-- **No API key** — uses `claude -p --output-format json` under the hood. Your Claude.ai subscription covers the cost.
-- **PWD as workspace** — run `goalforge` from your project root; files are written in place. No `workspace/` subdirectory.
+- **No API key** — uses `claude -p --output-format json` under the hood. Claude.ai subscription covers the cost.
+- **PWD as workspace** — run `goalforge` from project root; files are written in place. No `workspace/` subdirectory.
 - **Fresh context per phase** — Planner, Executor, and Reviewer each get a clean 200k-token window. Long-running projects never hit context limits.
 - **Crash-resilient** — `goalforge resume` picks up exactly where the loop left off. Any in-flight task is reset and retried.
 - **Interactive** — Ctrl+C once to pause, inject feedback, redo, or quit. A finish prompt appears after every normal exit.
-- **Spend cap** — `--cost <N>` hard-stops the loop before you overshoot your budget.
+- **Spend cap** — `--cost <N>` hard-stops the loop before  overshoot the budget.
 - **Coverage gate** — the loop won't exit until Jest reports ≥ target line coverage (default 95%).
 - **Retry tracking** — failed tasks get `(retries: N)` annotations. After 3 retries the task is marked `[F]` and skipped.
 - **Automatic cleanup** — after every iteration, stale critique files and excess cache entries are pruned. After a successful run, all task/critique/cache/state files are wiped so the next run starts clean. Architecture decisions (`decisions/`) and the cross-run learning log (`OUTBOX.md`) are always preserved.
@@ -181,7 +181,7 @@ Full state machine. Runs indefinitely, survives context exhaustion, tracks spend
 goalforge "Build a REST API with JWT auth"
 ```
 
-Best for: **multi-hour, multi-file projects** where you want to walk away.
+Best for: **multi-hour, multi-file projects** requiring minimal supervision.
 
 ---
 
@@ -193,7 +193,7 @@ A Claude Code slash command that mimics the same 6-phase loop using Claude's nat
 /build --iter 5 "Add pagination to the users endpoint"
 ```
 
-Best for: **quick focused tasks** inside an existing project where you're already in Claude Code.
+Best for: **quick focused tasks** within an active Claude Code session.
 
 ---
 
@@ -207,7 +207,7 @@ npm install -g @anthropic-ai/claude-code
 claude login
 ```
 
-Follow the browser prompt to sign in with your Claude.ai account. No API key. No credit card beyond your existing subscription.
+Follow the browser prompt to sign in. No API key. No credit card beyond the existing subscription.
 
 ---
 
@@ -270,7 +270,7 @@ Open Claude Code in the `goalforge/` root. The skill is already at `.claude/comm
 **Option B — copy it into another project**
 
 ```bash
-# Inside any project you want to use /build in:
+# Inside any project to use /build in:
 mkdir -p .claude/commands
 cp /path/to/goalforge/.claude/commands/build.md .claude/commands/build.md
 ```
@@ -320,7 +320,7 @@ goalforge --workspace ~/projects/my-api "Build a REST API"
 
 ### `goalforge contribute`
 
-Run this from the folder where you want the repo cloned:
+Run from the target folder for the repo clone:
 
 ```bash
 cd ~/Desktop
@@ -335,7 +335,7 @@ goalforge contribute
 #
 #    Repo cloned to: ~/Desktop/goalforge-claude
 #
-#    What improvement would you like to contribute?
+#    What improvement should be contributed?
 #    Be specific — this becomes the autonomous loop goal.
 #
 #  > Add a --quiet flag that suppresses all non-error output
@@ -346,7 +346,7 @@ goalforge contribute
 ```
 
 **Requirements**: the `gh` CLI installed and authenticated (`gh auth login`).  
-GoalForge forks the repo to your GitHub account, creates a branch, runs the loop on its own source, commits the result, and opens a PR to `oztek22/goalforge-claude` — all in one command.
+GoalForge forks the repo to the authenticated GitHub account, creates a branch, runs the loop on its own source, commits the result, and opens a PR to `oztek22/goalforge-claude` — all in one command.
 
 ### Interactive controls
 
@@ -441,9 +441,9 @@ goalforge/                         # project root
 ├── MANUAL.md                      # non-engineer user guide
 └── README.md                      # this file
 
-# When you run goalforge in your project:
-your-project/
-├── <generated source files>       # written directly into your project root
+# When goalforge runs in a project:
+project-root/
+├── <generated source files>       # written directly into the project root
 └── .goalforge/                    # gitignored automatically
     ├── memory/                    # CLI state machine state
     │   ├── state/project.json
@@ -459,7 +459,7 @@ your-project/
 
 ## How the `/build` skill stores state
 
-The skill writes state to `.goalforge/build/` inside your current project directory using three markdown files:
+The skill writes state to `.goalforge/build/` inside the current project directory using three markdown files:
 
 | File | Purpose |
 |------|---------|
@@ -475,9 +475,9 @@ Retry tracking: tasks that fail are annotated `(retries: N)`. At `retries: 3` th
 
 ## Cost model
 
-GoalForge uses the `claude` CLI, which authenticates via your Claude.ai subscription — **no `ANTHROPIC_API_KEY` is required, and there is no per-token billing.**
+GoalForge uses the `claude` CLI, which authenticates via the Claude.ai subscription — **no `ANTHROPIC_API_KEY` is required, and there is no per-token billing.**
 
-The `--cost` flag is a **usage governor**: it reads the cost reported by the CLI after each call and stops the loop if cumulative spend exceeds the cap. Set it based on how much of your subscription allowance you want to dedicate to a single run.
+The `--cost` flag is a **usage governor**: it reads the cost reported by the CLI after each call and stops the loop if cumulative spend exceeds the cap. Set it based on how much subscription allowance to dedicate to a single run.
 
 ```bash
 goalforge --cost 3 "Build a REST API"   # stop after ~$3 of subscription usage
@@ -494,7 +494,7 @@ goalforge --cost 0.5 "Fix this bug"     # tight cap for a quick task
 
 **Change the planner prompt** — edit `SYSTEM_PROMPT` in `engine/src/components/planner.ts`.
 
-**Swap the test runner** — `TestRunner` in `engine/src/components/test-runner.ts` detects Jest automatically. Replace the jest invocation with your own test command.
+**Swap the test runner** — `TestRunner` in `engine/src/components/test-runner.ts` detects Jest automatically. Replace the jest invocation with the project's test command.
 
 ---
 

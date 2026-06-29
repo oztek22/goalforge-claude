@@ -37,7 +37,7 @@
   <text x="76" y="110" font-family="'SF Mono', 'Fira Code', monospace" font-size="52" font-weight="700" fill="#f9fafb" letter-spacing="-1" filter="url(#glow)">GoalForge</text>
 
   <!-- Tagline -->
-  <text x="76" y="140" font-family="'SF Mono', 'Fira Code', monospace" font-size="15" fill="#9ca3af">Describe what you want. Claude builds it. No API key needed.</text>
+  <text x="76" y="140" font-family="'SF Mono', 'Fira Code', monospace" font-size="15" fill="#9ca3af">Describe the goal. Claude builds it. No API key needed.</text>
 
   <!-- Pipeline strip -->
   <rect x="56" y="175" width="788" height="36" fill="#1f2937" rx="6"/>

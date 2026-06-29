@@ -1,38 +1,38 @@
 # GoalForge — User Manual
 
-Describe what you want. Claude builds it. No API key needed.
+Describe the goal. Claude builds it. No API key needed.
 
-GoalForge takes a plain-English description of a software project and autonomously builds it using AI. You describe what you want; it writes the code, tests it, reviews it, and keeps refining until the result meets quality standards or the usage cap is reached.
+GoalForge takes a plain-English goal and autonomously produces working code — decomposing tasks, writing files, running tests, evaluating output, and iterating until quality criteria are met or the usage cap is reached.
 
 ---
 
 ## What Does It Do?
 
-You give the tool a goal like:
+Given a goal like:
 
 > "Build a REST API for tracking personal expenses"
 
-It then:
+GoalForge:
 
 1. **Plans** — breaks the goal into a prioritised list of concrete tasks
-2. **Builds** — writes code for each task, one at a time
-3. **Tests** — runs the code's test suite automatically
-4. **Reviews** — critiques its own output and fixes problems
-5. **Repeats** — keeps cycling through steps 1–4 until the code meets the quality bar, the money runs out, or it runs out of attempts
+2. **Builds** — writes code for each task sequentially
+3. **Tests** — runs the test suite automatically
+4. **Reviews** — evaluates its own output and corrects problems
+5. **Repeats** — cycles through steps 1–4 until coverage and review criteria pass, the budget cap is reached, or the iteration limit is hit
 
-All the generated code lands in a `workspace/` folder next to this manual.
+Generated files land directly in the directory where the tool is invoked (the project root).
 
 ---
 
-## Before You Start
+## Before Starting
 
-You need:
+Requirements:
 
-- **Node.js 20 or newer** installed ([nodejs.org](https://nodejs.org))
-- **Claude Code CLI** installed and logged in — no API key required
+- **Node.js 20 or newer** ([nodejs.org](https://nodejs.org))
+- **Claude Code CLI** installed and authenticated — no API key required
 - A terminal (Terminal on Mac, Command Prompt or PowerShell on Windows)
 
-The tool calls Claude through the `claude` CLI, which uses your Claude.ai subscription (Pro or Teams). There is no separate API key to manage.
+Claude calls are covered by a Claude.ai subscription (Pro or Teams). There is no separate API key or per-call billing.
 
 ### Installing the Claude CLI
 
@@ -41,29 +41,27 @@ npm install -g @anthropic-ai/claude-code
 claude login
 ```
 
-Follow the browser prompt to sign in with your Claude.ai account. Once logged in, the CLI stores your session — you will not need to log in again unless the session expires.
+Follow the browser prompt to authenticate with a Claude.ai account. The session persists — re-authentication is only required on expiry.
 
 ---
 
 ## First-Time Setup
 
-### Option A — install from npm (easiest)
+### Option A — install from npm (recommended)
 
 ```bash
 npm install -g goalforge-claude
 ```
 
-The `goalforge` command is now available everywhere. Skip to **Running the Tool** below.
+The `goalforge` command is now available globally. Skip to **Running the Tool** below.
 
-### Option B — run from this folder
+### Option B — run from source
 
 ```bash
 cd engine
 npm install
 npm run build
 ```
-
-You only need to do this once.
 
 ---
 
@@ -82,33 +80,29 @@ cd engine
 GOAL="Build a CLI app that converts CSV files to JSON" npm start
 ```
 
-Replace the text in quotes with your own goal. The tool will start logging its progress immediately.
-
-### Dry run (free — no AI calls)
-
-To see how the tool works without spending any money or writing real code:
+### Dry run — no AI calls, no cost
 
 ```bash
 DRY_RUN=true npm start
 ```
 
-This runs the full loop with placeholder outputs. Great for checking your setup.
+Runs the full loop with placeholder outputs. Useful for validating the task breakdown before committing subscription allowance.
 
 ---
 
 ## Customising the Run
 
-You can control the tool's behaviour with these settings, placed before `npm start`:
+Environment variables set defaults; CLI flags override them.
 
 | Setting | What it does | Default |
 |---------|-------------|---------|
-| `GOAL="..."` | What you want built | A stock analysis app |
-| `MAX_COST_USD=5` | Maximum dollars to spend on AI | 10 |
-| `MAX_ITERATIONS=10` | How many rounds of planning + building to do | 20 |
-| `TARGET_COVERAGE=80` | Test coverage % to aim for before stopping | 95 |
-| `DRY_RUN=true` | Skip real AI calls (for testing your setup) | false |
+| `GOAL="..."` | Target goal | A stock analysis app |
+| `MAX_COST_USD=5` | Usage cap in USD | 10 |
+| `MAX_ITERATIONS=10` | Max planning + building rounds | 20 |
+| `TARGET_COVERAGE=80` | Test coverage % before exit | 95 |
+| `DRY_RUN=true` | Skip AI calls (setup validation) | false |
 
-**Example** — build something specific, spend at most $3, stop after 5 rounds:
+**Example** — build something specific, cap at $3, stop after 5 rounds:
 
 ```bash
 GOAL="Build a weather dashboard that fetches data from an API" \
@@ -121,40 +115,38 @@ npm start
 
 ## Understanding the Output
 
-While running, the tool prints coloured log lines. Here is what they mean:
+Log lines follow a consistent format:
 
 ```
-[INFO] [Planner] Planning tasks           ← AI is breaking the goal into tasks
-[INFO] [TaskQueue] Task enqueued          ← a task has been added to the work list
-[INFO] [Executor] Executing task          ← AI is writing code for a task
-[INFO] [TestRunner] Running tests         ← tests are being run on the code
-[INFO] [Reviewer] Review complete         ← AI has reviewed the code
-[INFO] [LoopController] Phase: COST       ← checking how much has been spent
-[INFO] [LoopController] === LOOP EXIT: MAX-ITERATIONS === ← the tool has finished
+[INFO] [Planner] Planning tasks           ← goal is being decomposed into tasks
+[INFO] [TaskQueue] Task enqueued          ← task added to the work queue
+[INFO] [Executor] Executing task          ← code is being written for a task
+[INFO] [TestRunner] Running tests         ← test suite executing
+[INFO] [Reviewer] Review complete         ← diff has been evaluated
+[INFO] [LoopController] Phase: COST       ← spend check against cap
+[INFO] [LoopController] === LOOP EXIT: MAX-ITERATIONS === ← loop complete
 ```
 
-Yellow (`[WARN]`) lines are non-fatal notices. Red (`[ERROR]`) lines indicate a problem that may affect the result.
+`[WARN]` lines are non-fatal notices. `[ERROR]` lines indicate a problem that may affect the output.
 
-### How it ends
-
-When the tool finishes it prints one of these exit messages:
+### Exit conditions
 
 | Message | Meaning |
 |---------|---------|
-| `no-critical-issues` | The code meets the quality target — done successfully |
-| `all-tasks-complete` | Every planned task was finished |
-| `max-iterations` | Hit the round limit; partial output is in `workspace/` |
-| `cost-exceeded` | Ran out of budget; partial output is in `workspace/` |
+| `no-critical-issues` | Review passed — quality target met |
+| `all-tasks-complete` | All planned tasks finished |
+| `max-iterations` | Iteration cap reached; partial output is in the project root |
+| `cost-exceeded` | Usage cap reached; partial output is in the project root |
 
 ---
 
 ## Where Is My Code?
 
-Generated files are written directly into the directory where you run the tool (your project root). If you run `goalforge` from `~/my-project/`, that is where the code appears.
+Generated files are written directly into the directory where the tool is invoked (the project root).
 
 ```
 my-project/         ← run goalforge from here
-  src/              ← generated source files land here
+  src/              ← generated source files
   package.json      ← generated or updated in place
   .goalforge/       ← tool state (gitignored automatically)
 ```
@@ -163,62 +155,61 @@ my-project/         ← run goalforge from here
 
 ## What Gets Remembered
 
-The tool keeps a memory of its work so it can resume if interrupted. This memory is stored in a hidden folder inside your project:
+Run state is persisted to `.goalforge/memory/` inside the project directory:
 
 ```
 .goalforge/memory/
 ```
 
-It contains:
-- The current state of the project (which tasks are done, how much was spent)
-- A log of architecture decisions made during planning
-- The code review critiques
-- A cache of AI responses (so identical requests aren't re-sent to Claude, saving time and subscription allowance)
+Contents:
+- Project state — which tasks are done, cumulative spend
+- Architecture decisions made during planning
+- Code review critiques
+- AI response cache — deduplicates identical requests, reducing subscription usage
 
-This folder is automatically added to `.gitignore` on first run — you don't need to commit it.
+This directory is added to `.gitignore` on first run.
 
 ### Automatic cleanup
 
-GoalForge keeps the memory folder tidy automatically:
+GoalForge keeps the memory folder bounded automatically:
 
-- **After every iteration** — critique files for completed tasks are deleted (they're no longer needed for re-review), and old cache entries are evicted once the cache grows beyond 200 files.
-- **After a successful run** — all task files, critiques, cached responses, and the project state are wiped. Architecture decisions and the cross-run learning log are kept. This means the next `goalforge` invocation from the same directory starts fresh rather than attempting to resume a completed project.
+- **After every iteration** — critiques for completed tasks are pruned; cache is evicted once it exceeds 200 entries
+- **After a successful run** — task files, critiques, cache, and project state are wiped. Architecture decisions and the cross-run learning log are preserved. The next invocation from the same directory starts clean rather than attempting to resume a completed project
 
-To start completely fresh on an incomplete or interrupted run, delete the `.goalforge/` folder before running again.
+To start fresh on an incomplete run, delete `.goalforge/` before running again.
 
 ---
 
 ## Resuming a Stopped Run
 
-If the tool is interrupted — Ctrl+C twice to force-quit, network error, computer shutdown — run this from the same directory to pick up where it left off:
+If interrupted — force-quit, network failure, shutdown — resume from the same directory:
 
 ```bash
 goalforge resume
 ```
 
-GoalForge reads the saved state from `.goalforge/memory/` and continues from the last completed iteration. Any task that was mid-execution is automatically reset and retried.
+State is read from `.goalforge/memory/`. Any task that was mid-execution is automatically reset and retried.
 
 ### Pausing mid-run
 
-You can also pause cleanly without losing progress:
+Press **Ctrl+C once** — the loop finishes its current AI call, then pauses.
 
-1. Press **Ctrl+C once** — the loop finishes its current AI call then pauses.
-2. At the prompt, choose:
-   - **Enter** — continue as-is
-   - **Type feedback** — inject a note for the AI and continue (e.g. `focus on error handling`)
-   - **`redo`** — restart from scratch with the same goal
-   - **`redo <feedback>`** — restart with extra direction
-   - **`q`** — stop
+At the prompt:
+- **Enter** — continue as-is
+- **Type feedback** — inject a note and continue (e.g. `focus on error handling`)
+- **`redo`** — restart from scratch with the same goal
+- **`redo <feedback>`** — restart with additional direction
+- **`q`** — stop
 
-After the loop finishes normally, you'll see a "Was this what you wanted?" prompt where you can do the same.
+After a normal exit, a finish prompt offers the same options.
 
 ---
 
 ## How Much Will It Cost?
 
-Claude calls are covered by your **Claude.ai subscription** (Pro or Teams) — there is no separate per-call billing. The tool does track the cost figures reported by the CLI for each call and compares them against `MAX_COST_USD`. This acts as a **usage governor**: the tool stops itself when the tracked spend reaches the cap, preventing runaway loops from consuming your subscription allowance.
+Claude calls are covered by the Claude.ai subscription (Pro or Teams) — no per-call billing. Cost figures reported by the CLI are tracked against `MAX_COST_USD`. When cumulative spend hits the cap, the loop exits — preventing runaway iterations from consuming the subscription allowance.
 
-Approximate tracked spend per run (based on CLI-reported values):
+Approximate tracked spend per run:
 
 | Goal complexity | Rough tracked spend |
 |----------------|---------------------|
@@ -227,34 +218,32 @@ Approximate tracked spend per run (based on CLI-reported values):
 | Web API with tests | $2.00 – $5.00 |
 | Full application | $5.00 – $10.00 |
 
-The default cap is **$10**. Set `MAX_COST_USD` lower if you want the tool to stop sooner.
-
-The tool warns you at 80% of the cap and stops automatically when the limit is reached.
+Default cap is **$10**. A warning is emitted at 80% of the cap; the loop halts at 100%.
 
 ---
 
 ## Common Issues
 
-**"Cannot find module" error after `npm start`**
-You may have skipped the build step. Run `npm run build` first.
+**"Cannot find module" error after `npm start`**  
+The build step was skipped. Run `npm run build` first.
 
-**The tool stops immediately with "Budget exhausted"**
-Your budget is set too low for the prompt size. Try `MAX_COST_USD=5` or more, or simplify the goal.
+**The tool stops immediately with "Budget exhausted"**  
+The cap is too low for the prompt size. Try `MAX_COST_USD=5` or higher, or narrow the goal.
 
-**No code appears in my project directory**
-Check that `DRY_RUN` is not set to `true`. In dry-run mode the tool creates only placeholder `.txt` files. Also confirm you ran `goalforge` from your project root.
+**No code appears in the project directory**  
+Confirm `DRY_RUN` is not set to `true` — dry-run mode writes only placeholder `.txt` files. Also verify the tool was invoked from the project root.
 
-**The claude CLI is not authenticated**
-Run `claude login` and follow the browser prompt. If `claude` is not found, install it first: `npm install -g @anthropic-ai/claude-code`.
+**The claude CLI is not authenticated**  
+Run `claude login` and follow the browser prompt. If `claude` is not found: `npm install -g @anthropic-ai/claude-code`.
 
-**I want to start over**
-Delete `.goalforge/` in your project directory, then run again.
+**Starting over**  
+Delete `.goalforge/` in the project directory, then run again.
 
 ---
 
 ## Tips for Better Results
 
-- **Be specific in your goal.** "Build a REST API for user authentication with JWT tokens, written in Node.js with Express" works much better than "Build an auth system".
-- **Set a realistic cap.** `MAX_COST_USD=5` is usually enough for a small but complete project — the default $10 cap is generous but prevents runaway loops.
-- **Check your project incrementally.** You can open files in your project directory while the tool is still running to see what has been written.
-- **Use `DRY_RUN=true` first** if you are not sure your goal is well-specified — it runs fast and free, and shows you the task breakdown the AI would plan.
+- **Be specific in the goal.** "Build a REST API for user authentication with JWT tokens, written in Node.js with Express" produces significantly better results than "Build an auth system".
+- **Set a realistic cap.** `MAX_COST_USD=5` covers most small-to-medium tasks. The default $10 is generous but bounded.
+- **Check output incrementally.** Files can be inspected while the tool is still running.
+- **Use `DRY_RUN=true` first** on underspecified goals — it's free, fast, and shows exactly what tasks the planner would generate.
