@@ -75,7 +75,8 @@ export async function callClaude(
   systemPrompt: string,
   userPrompt: string,
   timeoutMs = Number(process.env.CLAUDE_TIMEOUT_MS ?? 600_000),
-  taskId?: string   // when set, streaming goes to the task panel instead of stdout
+  taskId?: string,   // when set, streaming goes to the task panel instead of stdout
+  model?: string     // when set, pass `--model <model>` to the claude CLI
 ): Promise<CliResult> {
   const fullPrompt = `${systemPrompt}\n\n---\n\n${userPrompt}`;
   const debug = process.env.GOALFORGE_DEBUG === 'true';
@@ -87,13 +88,16 @@ export async function callClaude(
     log.debug('Claude call starting', {
       promptChars: fullPrompt.length,
       timeoutMs,
+      model,
     });
   }
 
   return new Promise((resolve, reject) => {
+    const cliArgs = ['-p', '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
+    if (model) cliArgs.push('--model', model);
     const child = spawn(
       'claude',
-      ['-p', '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'],
+      cliArgs,
       { stdio: ['pipe', 'pipe', 'pipe'] }
     );
 

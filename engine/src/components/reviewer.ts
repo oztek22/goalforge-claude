@@ -61,7 +61,8 @@ export class Reviewer {
     private readonly optimizer: CostOptimizer,
     private readonly memory: MemoryStore,
     private readonly dryRun = false,
-    private readonly timeoutMs = 600_000
+    private readonly timeoutMs = 600_000,
+    private readonly model = ''
   ) {}
 
   async review(task: Task): Promise<ReviewResult> {
@@ -150,7 +151,7 @@ export class Reviewer {
   }
 
   private async callApi(taskId: string, prompt: string, _taskObjective: string): Promise<string> {
-    const { text, costUsd } = await callClaude(SYSTEM_PROMPT, prompt, this.timeoutMs, taskId);
+    const { text, costUsd } = await callClaude(SYSTEM_PROMPT, prompt, this.timeoutMs, taskId, this.model);
     this.optimizer.recordCost(costUsd);
     return text;
   }

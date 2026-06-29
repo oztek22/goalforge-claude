@@ -55,7 +55,8 @@ export class Planner {
     private readonly optimizer: CostOptimizer,
     private readonly memory: MemoryStore,
     private readonly dryRun = false,
-    private readonly timeoutMs = 600_000
+    private readonly timeoutMs = 600_000,
+    private readonly model = ''
   ) {}
 
   /**
@@ -135,7 +136,7 @@ export class Planner {
 
   private async callApi(prompt: string): Promise<string> {
     StatusBar.startTask('planner', 'Planning tasks…');
-    const { text, costUsd } = await callClaude(SYSTEM_PROMPT, prompt, this.timeoutMs, 'planner');
+    const { text, costUsd } = await callClaude(SYSTEM_PROMPT, prompt, this.timeoutMs, 'planner', this.model);
     StatusBar.clearTask('planner');
     this.optimizer.recordCost(costUsd);
     return text;

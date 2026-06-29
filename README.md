@@ -370,12 +370,14 @@ After a force-quit, run `goalforge resume` to pick up exactly where the loop lef
 | `--iter <N>` | `-i` | `20` | Max loop iterations before forced exit |
 | `--cost <N>` | `-c` | `10` | Spend cap in USD (subscription usage governor) |
 | `--cover <N>` | `-k` | `95` | Target line coverage % |
+| `--plan-model <id>` | | `claude-opus-4-8` | Model for the planning phase (stronger reasoning) |
+| `--exec-model <id>` | | `claude-sonnet-4-6` | Model for execution & review (faster, cheaper) |
 | `--workspace <path>` | | `./` | Working directory — generated code lands here |
 | `--dry-run` | `-d` | off | Skip all Claude calls; write placeholder files |
 | `--version` | `-v` | | Print version and exit |
 | `--help` | `-h` | | Show help and exit |
 
-Environment variables (`GOAL`, `MAX_ITERATIONS`, `MAX_COST_USD`, `TARGET_COVERAGE`, `DRY_RUN`) are read as defaults and overridden by flags.
+Environment variables (`GOAL`, `MAX_ITERATIONS`, `MAX_COST_USD`, `TARGET_COVERAGE`, `DRY_RUN`, `PLAN_MODEL`, `EXEC_MODEL`) are read as defaults and overridden by flags.
 
 ---
 

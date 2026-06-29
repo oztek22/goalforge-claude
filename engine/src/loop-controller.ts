@@ -58,15 +58,16 @@ export class LoopController {
       { ...DEFAULT_BUDGET, maxCostUsd: config.maxCostUsd },
       this.memory
     );
-    this.planner = new Planner(this.optimizer, this.memory, config.dryRun, config.claudeTimeoutMs);
+    this.planner = new Planner(this.optimizer, this.memory, config.dryRun, config.claudeTimeoutMs, config.planModel);
     this.executor = new Executor(
       config.workspaceDir,
       this.optimizer,
       this.memory,
       config.dryRun,
-      config.claudeTimeoutMs
+      config.claudeTimeoutMs,
+      config.execModel
     );
-    this.reviewer = new Reviewer(this.optimizer, this.memory, config.dryRun, config.claudeTimeoutMs);
+    this.reviewer = new Reviewer(this.optimizer, this.memory, config.dryRun, config.claudeTimeoutMs, config.execModel);
     this.testRunner = new TestRunner(config.workspaceDir);
     this.state = {
       projectId: config.projectId,

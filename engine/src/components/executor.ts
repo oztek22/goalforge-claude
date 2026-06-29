@@ -45,7 +45,8 @@ export class Executor {
     private readonly optimizer: CostOptimizer,
     private readonly memory: MemoryStore,
     private readonly dryRun = false,
-    private readonly timeoutMs = 600_000
+    private readonly timeoutMs = 600_000,
+    private readonly model = ''
   ) {
     mkdirSync(workspaceDir, { recursive: true });
   }
@@ -131,7 +132,8 @@ export class Executor {
       SYSTEM_PROMPT,
       `TASK: ${objective}\n\nCONTEXT:\n${context}`,
       this.timeoutMs,
-      taskId
+      taskId,
+      this.model
     );
     this.optimizer.recordCost(costUsd);
     return text;
@@ -231,7 +233,8 @@ Return ONLY valid JSON (no markdown):
 }`,
         `TASK: ${task.objective}\nEFFORT: ${task.estimatedEffort}\n\nERROR:\n${error.slice(0, 600)}`,
         this.timeoutMs,
-        repairId
+        repairId,
+        this.model
       );
       StatusBar.clearTask(repairId);
       this.optimizer.recordCost(costUsd);

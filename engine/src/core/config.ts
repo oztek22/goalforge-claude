@@ -36,6 +36,8 @@ export function defaultLoopConfig(overrides: Partial<LoopConfig> = {}): LoopConf
     memoryDir: join(cwd, '.goalforge', 'memory'),
     dryRun: false,
     claudeTimeoutMs: 600_000,
+    planModel: 'claude-opus-4-8',
+    execModel: 'claude-sonnet-4-6',
     ...overrides,
   };
 }

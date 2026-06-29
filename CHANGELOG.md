@@ -10,6 +10,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [1.3.0] — 2026-06-29
+
+### Added
+
+- **Per-phase model selection** — the planning phase now defaults to Claude Opus (`claude-opus-4-8`) for stronger goal decomposition, while execution and review default to Claude Sonnet (`claude-sonnet-4-6`) for faster, cheaper implementation. Override with the new `--plan-model <id>` and `--exec-model <id>` flags, or the `PLAN_MODEL` / `EXEC_MODEL` environment variables. `callClaude` now forwards a `--model` flag to the `claude` CLI; `LoopConfig` gains `planModel` and `execModel` fields wired through `LoopController` into `Planner`, `Executor`, and `Reviewer`.
+
+---
+
 ## [1.2.1] — 2026-06-28
 
 ### Fixed
@@ -129,6 +137,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 - Zero runtime dependencies — the engine shell is `{}`; all AI calls go through the `claude` subprocess
 - `files` field in `package.json` whitelists only `dist/` and `README.md` in the npm tarball (38.8 kB packed)
 
+[1.3.0]: https://github.com/oztek22/goalforge-claude/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/oztek22/goalforge-claude/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/oztek22/goalforge-claude/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/oztek22/goalforge-claude/compare/v1.1.0...v1.1.1

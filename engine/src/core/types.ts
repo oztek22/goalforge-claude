@@ -144,6 +144,8 @@ export interface LoopConfig {
   memoryDir: string;               // where memory files are stored
   dryRun: boolean;                 // skip real API calls
   claudeTimeoutMs: number;         // per-call claude CLI timeout (default 600 000 ms)
+  planModel: string;               // model for the planning phase (default Opus)
+  execModel: string;               // model for execution + review (default Sonnet)
 }
 
 export interface LoopExitReason {

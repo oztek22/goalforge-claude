@@ -12,7 +12,7 @@ import { cleanupAfterSuccess, isSuccessExit } from './components/cleanup';
 import { LoopExitReason } from './core/types';
 import * as StatusBar from './core/status-bar';
 
-const VERSION = '1.2.1';
+const VERSION = '1.3.0';
 
 const UPSTREAM_REPO = 'oztek22/goalforge-claude';
 const UPSTREAM_URL  = `https://github.com/${UPSTREAM_REPO}`;
@@ -34,6 +34,8 @@ Options:
   --cost,  -c  <N>       Max spend cap in USD          (default: 10)
   --cover, -k  <N>       Target line coverage %        (default: 95)
   --timeout, -t <N>      Claude CLI timeout in seconds (default: 600)
+  --plan-model <id>      Model for planning phase       (default: claude-opus-4-8)
+  --exec-model <id>      Model for execution & review   (default: claude-sonnet-4-6)
   --dry-run, -d          Skip Claude calls, write placeholders
   --debug,   -D          Verbose logging: show prompts, raw responses, exit codes
   --workspace <path>     Working directory              (default: current directory)
@@ -41,7 +43,7 @@ Options:
   --help,    -h          Show this help
 
 Environment variables (overridden by flags):
-  GOAL, MAX_ITERATIONS, MAX_COST_USD, TARGET_COVERAGE, DRY_RUN, CLAUDE_TIMEOUT_MS
+  GOAL, MAX_ITERATIONS, MAX_COST_USD, TARGET_COVERAGE, DRY_RUN, CLAUDE_TIMEOUT_MS, PLAN_MODEL, EXEC_MODEL
   LOG_LEVEL=DEBUG        Enable debug log level
   GOALFORGE_DEBUG=true   Verbose Claude CLI logging (prompts, responses, exit codes)
 
@@ -59,6 +61,8 @@ interface ParsedArgs {
   maxCostUsd: number;
   targetCoverage: number;
   claudeTimeoutMs: number;
+  planModel: string;
+  execModel: string;
   projectId: string;
   dryRun: boolean;
   workspace: string;
@@ -84,6 +88,8 @@ function parseArgs(argv: string[]): ParsedArgs {
   let maxCostUsd = Number(process.env.MAX_COST_USD ?? 10);
   let targetCoverage = Number(process.env.TARGET_COVERAGE ?? 95);
   let claudeTimeoutMs = Number(process.env.CLAUDE_TIMEOUT_MS ?? 600_000);
+  let planModel = process.env.PLAN_MODEL ?? 'claude-opus-4-8';
+  let execModel = process.env.EXEC_MODEL ?? 'claude-sonnet-4-6';
   let projectId = process.env.PROJECT_ID ?? `project-${Date.now()}`;
   let dryRun = process.env.DRY_RUN === 'true';
   let workspace = process.cwd();
@@ -97,6 +103,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       case '--cost': case '-c':      maxCostUsd = Number(args[++i]); break;
       case '--cover': case '-k':     targetCoverage = Number(args[++i]); break;
       case '--timeout': case '-t':   claudeTimeoutMs = Number(args[++i]) * 1000; break;
+      case '--plan-model':           planModel = args[++i]; break;
+      case '--exec-model':           execModel = args[++i]; break;
       case '--workspace':            workspace = args[++i]; break;
       case '--dry-run': case '-d':   dryRun = true; break;
       case '--debug':   case '-D':
@@ -111,17 +119,17 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   if (positional[0] === 'resume') {
     isResume = true;
-    return { goal: '', maxIterations, maxCostUsd, targetCoverage, claudeTimeoutMs, projectId, dryRun, workspace, isResume, isAutoDiscover: false, isContribute: false };
+    return { goal: '', maxIterations, maxCostUsd, targetCoverage, claudeTimeoutMs, planModel, execModel, projectId, dryRun, workspace, isResume, isAutoDiscover: false, isContribute: false };
   }
 
   if (positional[0] === 'contribute') {
-    return { goal: '', maxIterations, maxCostUsd, targetCoverage, claudeTimeoutMs, projectId, dryRun, workspace, isResume: false, isAutoDiscover: false, isContribute: true };
+    return { goal: '', maxIterations, maxCostUsd, targetCoverage, claudeTimeoutMs, planModel, execModel, projectId, dryRun, workspace, isResume: false, isAutoDiscover: false, isContribute: true };
   }
 
   const goal = positional.join(' ') || process.env.GOAL || '';
   const isAutoDiscover = !goal;
 
-  return { goal, maxIterations, maxCostUsd, targetCoverage, claudeTimeoutMs, projectId, dryRun, workspace, isResume, isAutoDiscover, isContribute: false };
+  return { goal, maxIterations, maxCostUsd, targetCoverage, claudeTimeoutMs, planModel, execModel, projectId, dryRun, workspace, isResume, isAutoDiscover, isContribute: false };
 }
 
 interface SavedState {
@@ -514,7 +522,7 @@ function appendToChangelog(workspace: string, memoryDir: string, goal: string): 
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv);
-  const { maxIterations, maxCostUsd, targetCoverage, claudeTimeoutMs, dryRun, workspace } = parsed;
+  const { maxIterations, maxCostUsd, targetCoverage, claudeTimeoutMs, planModel, execModel, dryRun, workspace } = parsed;
   const memoryDir = join(workspace, '.goalforge', 'memory');
 
   // ── Contribute path — completely separate flow ─────────────────────────────
@@ -609,6 +617,8 @@ async function main(): Promise<void> {
       maxIterations,
       maxCostUsd,
       claudeTimeoutMs,
+      planModel,
+      execModel,
       workspaceDir: workspace,
       memoryDir,
       dryRun,
