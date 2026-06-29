@@ -17,8 +17,11 @@ export class RateLimitError extends Error {
   }
 }
 
+// Only match unambiguous CLI-level rate limit messages in stderr.
+// Deliberately excludes broad phrases like "rate limit" or "limit reached" that
+// can appear legitimately inside Claude's response text (e.g. code it wrote).
 const RATE_LIMIT_PATTERN =
-  /\b(session|usage|rate)\s+limit\b|hit your (session|usage) limit|reached your usage|limit reached|too many requests/i;
+  /hit your (session|usage) limit|reached your (session|usage) limit|too many requests/i;
 
 function parseResetDelayMs(text: string): number {
   const match = text.match(/reset[^.]*?(?:at|@)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
@@ -204,10 +207,10 @@ export async function callClaude(
       // Use the result event as the authoritative source of truth.
       const res = resultEvent;
 
-      // Rate limit: structured event OR text pattern in stderr/result
-      const combinedOutput = stderr + (typeof resultEvent?.result === 'string' ? resultEvent.result : '');
-      if (rateLimitDetected || RATE_LIMIT_PATTERN.test(combinedOutput)) {
-        const delay = rateLimitResetMs || parseResetDelayMs(combinedOutput);
+      // Rate limit: structured event OR text pattern in stderr only (never in result text,
+      // which is Claude's response and may legitimately contain words like "rate limit").
+      if (rateLimitDetected || RATE_LIMIT_PATTERN.test(stderr)) {
+        const delay = rateLimitResetMs || parseResetDelayMs(stderr);
         reject(new RateLimitError(delay));
         return;
       }

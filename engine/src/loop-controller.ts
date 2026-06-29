@@ -168,10 +168,8 @@ export class LoopController {
         }
       } catch (err) {
         if (err instanceof RateLimitError) {
-          // Don't count a rate-limit pause as an iteration — retry immediately after sleep.
-          iteration--;
-          await this.sleepForRateLimit(err.resetDelayMs);
-          continue;
+          this.persistState();
+          return this.buildExit('rate-limited', err.message);
         }
         throw err;
       }
@@ -568,17 +566,4 @@ export class LoopController {
     }
   }
 
-  /** Sleep until the rate limit resets, checking the STOP file every 30 s. */
-  private async sleepForRateLimit(resetDelayMs: number): Promise<void> {
-    const minutes = Math.ceil(resetDelayMs / 60_000);
-    this.log.warn(`Rate limit — sleeping ${minutes}m until reset`);
-    StatusBar.update({ phase: 'idle' });
-    let remaining = resetDelayMs;
-    while (remaining > 0) {
-      if (existsSync(this.stopFile)) break;
-      const chunk = Math.min(30_000, remaining);
-      await new Promise<void>((r) => setTimeout(r, chunk));
-      remaining -= chunk;
-    }
-  }
 }

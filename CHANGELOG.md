@@ -10,6 +10,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [1.3.1] — 2026-06-29
+
+### Fixed
+
+- **Rate limit exits gracefully instead of sleeping** — when the Claude CLI reports a rate limit, GoalForge now saves state and exits immediately with a clear message (`Run goalforge resume once your rate limit resets`) instead of sleeping 30 minutes in the background.
+- **Rate limit false positives eliminated** — the text-based fallback pattern no longer scans Claude's response content (which can legitimately contain words like "rate limit" in generated code). It now only checks `stderr` output from the CLI, and the pattern itself was tightened to only match unambiguous CLI-level messages (`hit your session/usage limit`, `too many requests`).
+
+---
+
 ## [1.3.0] — 2026-06-29
 
 ### Added
@@ -137,6 +146,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 - Zero runtime dependencies — the engine shell is `{}`; all AI calls go through the `claude` subprocess
 - `files` field in `package.json` whitelists only `dist/` and `README.md` in the npm tarball (38.8 kB packed)
 
+[1.3.1]: https://github.com/oztek22/goalforge-claude/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/oztek22/goalforge-claude/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/oztek22/goalforge-claude/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/oztek22/goalforge-claude/compare/v1.1.1...v1.2.0

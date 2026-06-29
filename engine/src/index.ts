@@ -12,7 +12,7 @@ import { cleanupAfterSuccess, isSuccessExit } from './components/cleanup';
 import { LoopExitReason } from './core/types';
 import * as StatusBar from './core/status-bar';
 
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 
 const UPSTREAM_REPO = 'oztek22/goalforge-claude';
 const UPSTREAM_URL  = `https://github.com/${UPSTREAM_REPO}`;
@@ -652,6 +652,15 @@ async function main(): Promise<void> {
     if (exit.reason === 'user-quit') {
       process.stdout.write('\n[GoalForge] Stopped by user.\n');
       process.exit(0);
+    }
+
+    // Rate limit hit — state saved, tell user to resume when limit resets
+    if (exit.reason === 'rate-limited') {
+      process.stdout.write(
+        '\n[GoalForge] Claude rate limit reached. Progress has been saved.\n' +
+        'Run \x1b[1mgoalforge resume\x1b[0m once your rate limit resets to continue.\n'
+      );
+      process.exit(1);
     }
 
     // Mid-loop redo: restart with updated goal already set in config.goal
