@@ -10,6 +10,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [1.3.2] — 2026-06-29
+
+### Fixed
+
+- **Rate-limit false positives on valid calls** — the `rate_limit_event` from the Claude CLI is informational and can fire even when a valid result is returned (approaching-limit warning). GoalForge now only treats it as a blocking rate limit when no valid result came back. The stderr text-pattern check (`too many requests`, `hit your session/usage limit`) is still a hard signal and always rejects.
+
+---
+
 ## [1.3.1] — 2026-06-29
 
 ### Fixed
@@ -146,6 +154,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 - Zero runtime dependencies — the engine shell is `{}`; all AI calls go through the `claude` subprocess
 - `files` field in `package.json` whitelists only `dist/` and `README.md` in the npm tarball (38.8 kB packed)
 
+[1.3.2]: https://github.com/oztek22/goalforge-claude/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/oztek22/goalforge-claude/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/oztek22/goalforge-claude/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/oztek22/goalforge-claude/compare/v1.2.0...v1.2.1

@@ -207,9 +207,11 @@ export async function callClaude(
       // Use the result event as the authoritative source of truth.
       const res = resultEvent;
 
-      // Rate limit: structured event OR text pattern in stderr only (never in result text,
-      // which is Claude's response and may legitimately contain words like "rate limit").
-      if (rateLimitDetected || RATE_LIMIT_PATTERN.test(stderr)) {
+      // rate_limit_event can be informational — the CLI emits it even on successful calls
+      // when approaching limits. Only treat it as blocking when no valid result came back.
+      // Text pattern in stderr is always a hard signal (it's the CLI's own error output).
+      const hasValidResult = res !== null && res.is_error !== true && typeof res.result === 'string';
+      if ((rateLimitDetected && !hasValidResult) || RATE_LIMIT_PATTERN.test(stderr)) {
         const delay = rateLimitResetMs || parseResetDelayMs(stderr);
         reject(new RateLimitError(delay));
         return;
